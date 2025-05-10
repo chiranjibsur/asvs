@@ -1,125 +1,116 @@
 import os
-import vtk
-from trame.app import get_app
-from trame.widgets import html, vtk
-from trame.ui.vtk import VtkRemoteViewer
-from Bio import PDB
-from trame.widgets import upload
+import io
+from flask import Flask, send_from_directory, request, jsonify, render_template, send_file
 
-# Step 1: Load the PDB file and parse it with Biopython
-def parse_pdb(pdb_file):
-    # Initialize the PDB parser
-    parser = PDB.PDBParser(QUIET=True)
-    structure = parser.get_structure('Protein', pdb_file)
+# Initialize Flask app
+app = Flask(__name__)
+
+def parse_pdb_info(pdb_content):
+    """Parse basic information from PDB file"""
+    lines = pdb_content.splitlines()
     
-    # Extract atoms and bonds
-    atoms = []
-    bonds = []
-    for model in structure:
-        for chain in model:
-            for residue in chain:
-                for atom in residue:
-                    atoms.append(atom)
-                    # Create bonds based on atom connectivity
-                    if atom.get_bonded_atoms():
-                        for bonded_atom in atom.get_bonded_atoms():
-                            bonds.append((atom, bonded_atom))
-    return atoms, bonds
-
-# Step 2: Create VTK representations for atoms and bonds
-def create_vtk_representation(atoms, bonds):
-    # Create a VTK renderer
-    renderer = vtk.vtkRenderer()
-    atoms_polydata = vtk.vtkPolyData()
-
-    # Create VTK points and a list of atoms
-    points = vtk.vtkPoints()
-    for atom in atoms:
-        points.InsertNextPoint(atom.coord)
-    atoms_polydata.SetPoints(points)
-
-    # Create VTK spheres for atoms
-    atom_spheres = vtk.vtkGlyph3D()
-    atom_spheres.SetSourceConnection(vtk.vtkSphereSource().GetOutputPort())
-    atom_spheres.SetInputData(atoms_polydata)
-    atom_spheres.Update()
-
-    # Create bonds as lines between atoms
-    bond_lines = vtk.vtkCellArray()
-    for bond in bonds:
-        atom1, atom2 = bond
-        id1 = points.InsertNextPoint(atom1.coord)
-        id2 = points.InsertNextPoint(atom2.coord)
-        bond_lines.InsertNextCell(2)
-        bond_lines.InsertCellPoint(id1)
-        bond_lines.InsertCellPoint(id2)
-
-    # Create VTK polydata for bonds
-    bond_polydata = vtk.vtkPolyData()
-    bond_polydata.SetPoints(points)
-    bond_polydata.SetLines(bond_lines)
-
-    # Visualize bonds as lines and atoms as spheres
-    bond_mapper = vtk.vtkPolyDataMapper()
-    bond_mapper.SetInputData(bond_polydata)
-    bond_actor = vtk.vtkActor()
-    bond_actor.SetMapper(bond_mapper)
-
-    atom_mapper = vtk.vtkPolyDataMapper()
-    atom_mapper.SetInputData(atom_spheres.GetOutput())
-    atom_actor = vtk.vtkActor()
-    atom_actor.SetMapper(atom_mapper)
-
-    # Add actors to the renderer
-    renderer.AddActor(bond_actor)
-    renderer.AddActor(atom_actor)
+    # Count atoms, residues, and chains
+    atoms = 0
+    residues = set()
+    chains = set()
     
-    return renderer
+    for line in lines:
+        if line.startswith("ATOM") or line.startswith("HETATM"):
+            atoms += 1
+            try:
+                residue_id = line[22:27].strip()
+                chain_id = line[21]
+                residues.add(residue_id + chain_id)
+                chains.add(chain_id)
+            except:
+                pass
+    
+    return {
+        "atoms": atoms,
+        "residues": len(residues),
+        "chains": len(chains)
+    }
 
-# Step 3: Setup the Trame App with file upload
-def main():
-    # Set up the Trame app
-    app = get_app()
+@app.route('/')
+def index():
+    # Serve the index.html file directly as static content
+    return send_file('templates/index.html')
 
-    # Upload handler
-    def handle_file_upload(file_data, filename):
-        if filename.endswith('.pdb'):
-            # Step 4: Parse the uploaded PDB file
-            atoms, bonds = parse_pdb(file_data)
+@app.route('/load_example')
+def load_example():
+    """Load example PDB file"""
+    example_path = os.path.join(os.path.dirname(__file__), "static/examples/1cbs.pdb")
+    
+    if os.path.exists(example_path):
+        with open(example_path, 'r') as f:
+            pdb_content = f.read()
+        
+        # Parse PDB info
+        info = parse_pdb_info(pdb_content)
+        info["filename"] = "1cbs.pdb"
+        
+        print(f"Loaded PDB with {info['atoms']} atoms, {info['residues']} residues, {info['chains']} chains")
+        
+        return jsonify({
+            "info": info,
+            "content": pdb_content
+        })
+    else:
+        return jsonify({"error": f"Example file not found: {example_path}"}), 404
 
-            # Create the VTK renderer
-            renderer = create_vtk_representation(atoms, bonds)
+@app.route('/upload_pdb', methods=['POST'])
+def upload_pdb():
+    """Handle PDB file upload"""
+    # Check if request has a file
+    if 'file' not in request.files:
+        return jsonify({"error": "No file part in the request"}), 400
+    
+    file = request.files['file']
+    
+    # If user doesn't select a file
+    if file.filename == '':
+        return jsonify({"error": "No file selected"}), 400
+    
+    # Check if file is a PDB
+    if not file.filename.lower().endswith('.pdb'):
+        return jsonify({"error": "Not a PDB file (must end with .pdb)"}), 400
+    
+    # Read the file content
+    pdb_content = file.read().decode('utf-8')
+    
+    # Validate the file has atom entries
+    if not 'ATOM' in pdb_content and not 'HETATM' in pdb_content:
+        return jsonify({"error": "Invalid PDB file format (no ATOM or HETATM entries)"}), 400
+    
+    # Parse PDB info
+    info = parse_pdb_info(pdb_content)
+    info["filename"] = file.filename
+    
+    print(f"Uploaded PDB with {info['atoms']} atoms, {info['residues']} residues, {info['chains']} chains")
+    
+    return jsonify({
+        "info": info,
+        "content": pdb_content
+    })
 
-            # Set up VTK viewer using Trame
-            viewer = VtkRemoteViewer()
-            viewer.renderer = renderer
-            viewer.camera.view_up = [0, 0, 1]
-
-            # Update the viewer
-            viewer.update()
-
-            # Set the renderer and viewer
-            viewer.renderer = renderer
-            with app.layout:
-                html.H1("3D Molecular Visualization")
-                viewer
-
-        else:
-            print("Please upload a valid PDB file.")
-
-    # File upload widget
-    upload_widget = upload.FileUpload(
-        on_file=handle_file_upload,
-        label="Upload PDB File"
-    )
-
-    # Layout with file upload widget
-    with app.layout:
-        html.H1("Upload a PDB File for Visualization")
-        upload_widget
-
-    # Run the app
-    app.run()
+@app.route('/static/<path:path>')
+def send_static(path):
+    return send_from_directory('static', path)
 
 if __name__ == '__main__':
-    main()
+    # Create static directory if it doesn't exist
+    os.makedirs('static/examples', exist_ok=True)
+    
+    # Check if example file exists, download if not
+    example_path = 'static/examples/1cbs.pdb'
+    if not os.path.exists(example_path):
+        import urllib.request
+        url = 'https://files.rcsb.org/download/1CBS.pdb'
+        try:
+            urllib.request.urlretrieve(url, example_path)
+            print(f"Downloaded example PDB file to {example_path}")
+        except Exception as e:
+            print(f"Error downloading example file: {e}")
+    
+    # Run the Flask app
+    app.run(host='0.0.0.0', port=5000)
