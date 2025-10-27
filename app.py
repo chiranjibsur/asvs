@@ -4,6 +4,9 @@ from flask import Flask, send_from_directory, request, jsonify, render_template,
 
 # Initialize Flask app
 app = Flask(__name__)
+# Add-on: MD trajectory JSON endpoints
+from asvs.trajectory_adapter import register_routes
+register_routes(app)
 
 def parse_pdb_info(pdb_content):
     """Parse basic information from PDB file"""
