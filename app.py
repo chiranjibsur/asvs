@@ -1,11 +1,13 @@
 import os
 import io
-from flask import Flask, send_from_directory, request, jsonify, render_template, send_file
+from flask import Flask, send_from_directory, request, jsonify, render_template, send_file, abort
+
+from asvs.trajectory_adapter import register_routes
 
 # Initialize Flask app
 app = Flask(__name__)
-# Add-on: MD trajectory JSON endpoints
-from asvs.trajectory_adapter import register_routes
+
+# Register Muskan's API routes ONCE
 register_routes(app)
 
 def parse_pdb_info(pdb_content):
@@ -100,11 +102,20 @@ def upload_pdb():
 def send_static(path):
     return send_from_directory('static', path)
 
+@app.route("/viewer")
+def viewer_page():
+    return render_template("index.html")
+
+@app.route("/viewer/<path:filename>")
+def serve_viewer_files(filename):
+    root = os.path.join(os.path.dirname(__file__), "viewer")
+    file_path = os.path.join(root, filename)
+    if not os.path.isfile(file_path):
+        abort(404)
+    return send_from_directory(root, filename)
+
 if __name__ == '__main__':
-    # Create static directory if it doesn't exist
     os.makedirs('static/examples', exist_ok=True)
-    
-    # Check if example file exists, download if not
     example_path = 'static/examples/1cbs.pdb'
     if not os.path.exists(example_path):
         import urllib.request
@@ -114,6 +125,6 @@ if __name__ == '__main__':
             print(f"Downloaded example PDB file to {example_path}")
         except Exception as e:
             print(f"Error downloading example file: {e}")
-    
-    # Run the Flask app
+
+    # Note: this hardcodes port 5000; env vars won't override.
     app.run(host='0.0.0.0', port=5000)
