@@ -1,0 +1,121 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Dynamic Hotspot Playback</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      :root { color-scheme: dark; }
+      body { margin: 0; background: #111; color: #eee; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+      .wrap { max-width: 1100px; margin: 32px auto; padding: 0 16px; }
+      h1 { text-align: center; margin: 0 0 20px; }
+      .viewer { background: #000; border: 1px solid #333; height: 540px; display: flex; align-items: center; justify-content: center; }
+      .controls { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; margin-top: 12px; }
+      .label { white-space: nowrap; }
+      input[type="range"] { width: 100%; }
+      button { padding: 6px 12px; border-radius: 6px; border: 1px solid #444; background: #222; color: #eee; cursor: pointer; }
+      button:hover { background: #2c2c2c; }
+      #canvas { width: 100%; height: 100%; }
+      .muted { color: #aaa; font-size: 12px; text-align: center; margin-top: 8px; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>Dynamic Hotspot Playback</h1>
+      <div id="viewer" class="viewer">
+        <canvas id="canvas"></canvas>
+      </div>
+
+      <div class="controls">
+        <div class="label">Frame</div>
+        <input id="frame" type="range" min="0" max="0" step="1" value="0" />
+        <div>
+          <button id="play">Play</button>
+          <button id="pause">Pause</button>
+        </div>
+      </div>
+
+      <div class="muted">This demo fetches geometry from <code>/api/trajectory/frame/{i}</code> and draws a polyline. We can swap in VTK/Trame later.</div>
+    </div>
+
+    <script>
+      const W = document.getElementById('viewer').clientWidth;
+      const H = document.getElementById('viewer').clientHeight;
+      const canvas = document.getElementById('canvas');
+      canvas.width = W; canvas.height = H;
+      const ctx = canvas.getContext('2d');
+
+      let meta = null;
+      let timer = null;
+      let frame = 0;
+
+      async function getMeta() {
+        const r = await fetch('/api/trajectory/meta');
+        meta = await r.json();
+        document.getElementById('frame').max = meta.n_frames - 1;
+      }
+
+      async function getFrame(i) {
+        const r = await fetch(`/api/trajectory/frame/${i}`);
+        return r.json();
+      }
+
+      function draw(coords) {
+        ctx.clearRect(0, 0, W, H);
+        if (!coords || coords.length < 2) return;
+
+        // Fit coords to canvas
+        const xs = coords.map(c => c[0]), ys = coords.map(c => c[1]);
+        const minX = Math.min(...xs), maxX = Math.max(...xs);
+        const minY = Math.min(...ys), maxY = Math.max(...ys);
+        const sx = (W - 40) / Math.max(1e-6, maxX - minX);
+        const sy = (H - 40) / Math.max(1e-6, maxY - minY);
+        const s = Math.min(sx, sy);
+        const ox = 20 - minX * s;
+        const oy = 20 - minY * s;
+
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#ff6b6b';
+        ctx.beginPath();
+        ctx.moveTo(coords[0][0]*s + ox, H - (coords[0][1]*s + oy));
+        for (let k = 1; k < coords.length; ++k) {
+          const x = coords[k][0]*s + ox;
+          const y = H - (coords[k][1]*s + oy);
+          ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+
+      async function show(i) {
+        const f = await getFrame(i);
+        draw(f.coords);
+      }
+
+      async function init() {
+        await getMeta();
+        await show(0);
+      }
+
+      document.getElementById('frame').addEventListener('input', (e) => {
+        frame = +e.target.value;
+        show(frame);
+      });
+
+      document.getElementById('play').addEventListener('click', async () => {
+        if (timer) return;
+        timer = setInterval(async () => {
+          frame = (frame + 1) % meta.n_frames;
+          document.getElementById('frame').value = frame;
+          await show(frame);
+        }, 60);
+      });
+
+      document.getElementById('pause').addEventListener('click', () => {
+        clearInterval(timer);
+        timer = null;
+      });
+
+      init();
+    </script>
+  </body>
+</html>
