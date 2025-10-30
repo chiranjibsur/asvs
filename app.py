@@ -7,8 +7,46 @@ from asvs.trajectory_adapter import register_routes
 # Initialize Flask app
 app = Flask(__name__)
 
-# Register Muskan's API routes ONCE
+
 register_routes(app)
+# ---- add near top of app.py (after Flask imports) ----
+import os
+import json
+from flask import jsonify
+try:
+    import MDAnalysis as mda
+except Exception as e:
+    mda = None
+
+# Configure paths to your viewer files
+PDB_PATH = os.environ.get("ASVS_PDB", "viewer/topology.pdb")
+XTC_PATH = os.environ.get("ASVS_XTC", "viewer/trajectory.xtc")
+
+# Simple singleton cache
+_UNIVERSE = None
+_RESNOS = None  # list[int] length = n_atoms
+
+def get_universe():
+    """Load and cache the MDAnalysis Universe (one-time)."""
+    global _UNIVERSE
+    if _UNIVERSE is None:
+        if mda is None:
+            raise RuntimeError("MDAnalysis not available in this environment")
+        if not (os.path.exists(PDB_PATH) and os.path.exists(XTC_PATH)):
+            raise FileNotFoundError(f"Missing topology/trajectory at {PDB_PATH} / {XTC_PATH}")
+        _UNIVERSE = mda.Universe(PDB_PATH, XTC_PATH)
+        # Optionally prime to frame 0
+        _ = _UNIVERSE.trajectory[0]
+    return _UNIVERSE
+
+def get_residue_map():
+    """Return atomIndex -> PDB residue number (resnum) array; cache it."""
+    global _RESNOS
+    if _RESNOS is None:
+        u = get_universe()
+        # PDB-style residue numbers (can include insertion codes in PDB, but resnum is int)
+        _RESNOS = [int(atom.resnum) for atom in u.atoms]
+    return _RESNOS
 
 def parse_pdb_info(pdb_content):
     """Parse basic information from PDB file"""
@@ -113,6 +151,73 @@ def serve_viewer_files(filename):
     if not os.path.isfile(file_path):
         abort(404)
     return send_from_directory(root, filename)
+
+import json
+from flask import jsonify
+
+@app.route("/api/hotspots/<int:frame>")
+def get_hotspot_frame(frame):
+    """
+    Returns per-residue hotspot scores for a given frame.
+    Reads from viewer/hotspots_residue.json
+    """
+    try:
+        with open("viewer/hotspots_residue.json") as f:
+            hotspots = json.load(f)
+        # JSON keys are stored as strings
+        frame_data = hotspots.get(str(frame))
+        if frame_data is None:
+            return jsonify({"error": f"Frame {frame} not found"}), 404
+        return jsonify(frame_data)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/trajectory/residue_map")
+def residue_map():
+    """
+    Returns a mapping from atom index (0-based) to PDB residue number (resnum).
+    {
+      "resnos": [145,145,145,146,146,...]  # len == n_atoms
+    }
+    """
+    try:
+        resnos = get_residue_map()
+        return jsonify({"resnos": resnos})
+    except Exception as e:
+        # helpful error for debugging
+        return jsonify({"error": str(e), "pdb": PDB_PATH, "xtc": XTC_PATH}), 500
+
+@app.route("/api/trajectory/residue_table")
+def residue_table():
+    """
+    One-time residue table:
+      index: 0-based residue index (matches /api/trajectory/residue_map values)
+      resnum: PDB residue number
+      resname: residue name
+      chain: chain/segment id (segid if present, else guess from atom.chainID if available)
+    """
+    tbl = []
+    # Prefer segid when present; fall back to chainIDs if available
+    for r in u.residues:
+        chain = getattr(r, 'segid', '') or (getattr(r.atoms[0], 'chainID', '') if len(r.atoms) else '')
+        tbl.append({
+            "index": int(r.ix),
+            "resnum": int(getattr(r, 'resnum', r.id) if hasattr(r, 'resnum') else r.id),
+            "resname": str(r.resname),
+            "chain": str(chain)
+        })
+    return jsonify({"residues": tbl})
+
+@app.route('/viewer/ballstick')
+def ballstick_viewer():
+    """Serves the ball-and-stick visualization page."""
+    return render_template('ballstick_viewer.html')
+
+@app.route('/viewer/ballstick_frames/<path:filename>')
+def serve_ballstick_frames(filename):
+    """Serves frames.json or other outputs for ballstick view."""
+    folder = os.path.join('viewer', 'ballstick_frames')
+    return send_from_directory(folder, filename)
 
 if __name__ == '__main__':
     os.makedirs('static/examples', exist_ok=True)
