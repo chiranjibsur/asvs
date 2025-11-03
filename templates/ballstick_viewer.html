@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Molecular Visualizer • Ball-and-Stick</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    :root{color-scheme:dark} html,body{height:100%;margin:0}
+    body{background:#0f1012;color:#e9eaee;font-family:system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial,sans-serif}
+    .wrap{max-width:1200px;margin:24px auto;padding:0 20px}
+    h1{margin:0 0 6px;font-weight:700}
+    .meta{display:inline-block;padding:6px 10px;border-radius:10px;background:#1a1c22;border:1px solid #2b2f3a;font-size:12px;color:#b9beca;margin:4px 0 14px}
+    .controls{display:grid;grid-template-columns:auto 1fr auto auto;gap:10px;align-items:center;margin:8px 0 12px}
+    .btn{padding:8px 12px;border:1px solid #2b2f3a;background:#1a1c22;color:#e9eaee;border-radius:8px;cursor:pointer;font-weight:600}
+    .viewer{position:relative;background:#0b0c0f;border:1px solid #2b2f3a;border-radius:10px;height:min(72vh,680px);overflow:hidden}
+    #canvas{width:100%;height:100%;display:block}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Ball-and-Stick</h1>
+    <div class="meta" id="metaPill">frames: — • atoms: — • residues: —</div>
+    <div class="controls">
+      <div style="display:flex;gap:10px;align-items:center">
+        <span style="opacity:.75;font:12px/1 monospace">frame</span>
+        <input id="slider" type="range" min="0" max="0" step="1" value="0" />
+        <span id="frameLbl" style="min-width:28px;text-align:right;font:12px/1 monospace">0</span>
+      </div>
+      <button class="btn" id="btnLoad">Load frame</button>
+      <button class="btn" id="btnPlay">Play</button>
+      <button class="btn" id="btnPause" disabled>Pause</button>
+    </div>
+    <div class="viewer"><canvas id="canvas"></canvas></div>
+    <div id="status" style="margin-top:8px;font:12px/1.3 monospace;color:#9aa3b2">initializing…</div>
+  </div>
+  <script src="/static/lib/three.min.js"></script>
+  <script src="/static/lib/OrbitControls.js"></script>
+  <script src="/static/js/ballstick_viewer.js"></script>
+</body>
+</html>
