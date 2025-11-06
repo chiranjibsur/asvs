@@ -12,9 +12,10 @@
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/chiranjibsur/asvs.git
+   git clone <repository-url>
    cd asvs
    ```
+   Replace `<repository-url>` with the actual repository URL.
 
 2. **Install dependencies**
    ```bash
