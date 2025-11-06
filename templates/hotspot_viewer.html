@@ -39,6 +39,55 @@
       #tooltip { position: absolute; pointer-events: none; z-index: 10; padding: 8px 10px; background: #1f232b; color: #e8e8ea; border: 1px solid #3a3f4a; border-radius: 8px; font: 12px/1.35 monospace; display: none; max-width: 320px; white-space: nowrap; box-shadow: 0 8px 30px rgba(0,0,0,.35); }
 
       .status { margin-top: 8px; font: 12px/1.3 monospace; color: #9aa3b2; }
+
+      /* Atom Info Panel */
+      #infoPanel {
+        position: absolute;
+        top: 80px;
+        right: 20px;
+        width: 300px;
+        background: rgba(26, 28, 34, 0.95);
+        border: 1px solid #2b2f3a;
+        border-radius: 10px;
+        padding: 16px;
+        display: none;
+        z-index: 100;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+      }
+      
+      .atom-info-panel h3 {
+        margin: 0 0 12px 0;
+        color: #e9eaee;
+        font-size: 16px;
+        font-weight: 600;
+      }
+      
+      .info-section {
+        margin-bottom: 10px;
+        color: #b9beca;
+        font-size: 13px;
+        line-height: 1.5;
+      }
+      
+      .info-section strong {
+        color: #e9eaee;
+      }
+      
+      .close-btn {
+        width: 100%;
+        padding: 8px;
+        margin-top: 8px;
+        background: #263043;
+        color: #fff;
+        border: 1px solid #2b2f3a;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 13px;
+      }
+      
+      .close-btn:hover {
+        background: #2d3a4f;
+      }
     </style>
   </head>
   <body>
@@ -81,6 +130,9 @@
 
       <div class="status" id="status">initializing…</div>
     </div>
+
+    <!-- Atom Info Panel -->
+    <div id="infoPanel"></div>
 
     <script src="/static/lib/three.min.js"></script>
     <script src="/static/lib/OrbitControls.js"></script>
