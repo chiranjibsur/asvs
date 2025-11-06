@@ -1,4 +1,4 @@
-Metadata-Version: 2.4
+Metadata-Version: 2.1
 Name: molecular-visualizer
 Version: 1.0.0
 Summary: 3D Interactive Molecular Structure Viewer
@@ -12,11 +12,3 @@ Classifier: Programming Language :: Python :: 3
 Classifier: Topic :: Scientific/Engineering :: Chemistry
 Classifier: Topic :: Scientific/Engineering :: Visualization
 Requires-Python: >=3.6
-Requires-Dist: flask>=2.0.1
-Requires-Dist: numpy>=1.21.0
-Dynamic: author
-Dynamic: author-email
-Dynamic: classifier
-Dynamic: requires-dist
-Dynamic: requires-python
-Dynamic: summary
