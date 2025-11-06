@@ -63,6 +63,46 @@
 
   canvas.addEventListener('mousemove', onMouseMove, false);
 
+  // ---- RMSF data and toggle ----
+  let rmsfData = null;
+  let showRMSF = false;
+
+  async function fetchRMSF() {
+    try {
+      const r = await fetch('/api/rmsf');
+      if (!r.ok) return null;
+      return await r.json();
+    } catch {
+      return null;
+    }
+  }
+
+  // Load RMSF on startup
+  rmsfData = await fetchRMSF();
+
+  function toggleRMSFColoring() {
+    showRMSF = !showRMSF;
+    
+    if (showRMSF && rmsfData) {
+      applyRMSFColors();
+    } else {
+      const currentFrame = parseInt(slider.value, 10);
+      applyHotspotColors(currentFrame);
+    }
+  }
+
+  function applyRMSFColors() {
+    if (!rmsfData) return;
+    
+    const scores = rmsfData.normalized;
+    
+    for (let i = 0; i < atomMeshes.length; i++) {
+      const rIdx = atomResidueIdx[i];
+      const t = scores[String(rIdx)] || 0.0;
+      atomMeshes[i].material.color.copy(colorBWR(t));
+    }
+  }
+
   // ---- atom metadata ----
   const atomInfo = await (await fetch('/api/trajectory/atoms')).json();
   const atoms = atomInfo.atoms;
@@ -167,6 +207,113 @@
     }
     for (const b of bonds) {
       placeBond(b, xyz[b.userData.i], xyz[b.userData.j]);
+    }
+    // Update contact lines if visible
+    if (showContacts && contactLines.length > 0) {
+      updateContactLines(xyz);
+    }
+  }
+
+  // ---- Contact network visualization ----
+  let contactsData = null;
+  let contactLines = [];
+  let showContacts = false;
+
+  async function fetchContacts() {
+    try {
+      const r = await fetch('/api/contacts');
+      if (!r.ok) return null;
+      return await r.json();
+    } catch {
+      return null;
+    }
+  }
+
+  // Load contacts on startup
+  contactsData = await fetchContacts();
+
+  function toggleContactNetwork() {
+    showContacts = !showContacts;
+    
+    if (showContacts) {
+      displayContactNetwork();
+    } else {
+      hideContactNetwork();
+    }
+  }
+
+  function displayContactNetwork() {
+    if (!contactsData || contactLines.length > 0) return;
+    
+    // Get current frame coordinates
+    const currentFrame = parseInt(slider.value, 10);
+    fetch(`/api/trajectory/frame/${currentFrame}`)
+      .then(r => r.json())
+      .then(frameData => {
+        const xyz = frameData.xyz;
+        
+        // Create line for each contact
+        const lineMaterial = new THREE.LineBasicMaterial({ 
+          color: 0x00ff00, 
+          transparent: true, 
+          opacity: 0.3 
+        });
+        
+        for (const contact of contactsData.contacts.slice(0, 50)) { // Show top 50
+          const res1 = contact.residue1;
+          const res2 = contact.residue2;
+          
+          // Find atoms for these residues
+          let atom1Idx = atomResidueIdx.indexOf(res1);
+          let atom2Idx = atomResidueIdx.indexOf(res2);
+          
+          if (atom1Idx === -1 || atom2Idx === -1) continue;
+          
+          const p1 = xyz[atom1Idx];
+          const p2 = xyz[atom2Idx];
+          
+          const points = [
+            new THREE.Vector3(p1[0], p1[1], p1[2]),
+            new THREE.Vector3(p2[0], p2[1], p2[2])
+          ];
+          
+          const geometry = new THREE.BufferGeometry().setFromPoints(points);
+          const line = new THREE.Line(geometry, lineMaterial);
+          line.userData = { res1, res2 };
+          
+          scene.add(line);
+          contactLines.push(line);
+        }
+      });
+  }
+
+  function hideContactNetwork() {
+    for (const line of contactLines) {
+      scene.remove(line);
+      line.geometry.dispose();
+    }
+    contactLines = [];
+  }
+
+  function updateContactLines(xyz) {
+    for (const line of contactLines) {
+      const res1 = line.userData.res1;
+      const res2 = line.userData.res2;
+      
+      let atom1Idx = atomResidueIdx.indexOf(res1);
+      let atom2Idx = atomResidueIdx.indexOf(res2);
+      
+      if (atom1Idx === -1 || atom2Idx === -1) continue;
+      
+      const p1 = xyz[atom1Idx];
+      const p2 = xyz[atom2Idx];
+      
+      const points = [
+        new THREE.Vector3(p1[0], p1[1], p1[2]),
+        new THREE.Vector3(p2[0], p2[1], p2[2])
+      ];
+      
+      line.geometry.setFromPoints(points);
     }
   }
 
@@ -287,6 +434,7 @@
       // Get atom metadata
       const atom = atoms[atomIndex];
       const residueNum = atom.resnum;
+      const residueIndex = atomResidueIdx[atomIndex];
       
       // Fetch residue metadata
       const residueMeta = await fetch('/api/trajectory/residue_meta').then(r => {
@@ -315,6 +463,40 @@
       });
       const hotspotValue = hotspotData[residue.index] || 0;
       
+      // Get RMSF value
+      let rmsfHTML = '';
+      if (rmsfData && rmsfData.normalized) {
+        const rmsfValue = rmsfData.normalized[String(residueIndex)] || 0;
+        const actualRMSF = rmsfData.min + (rmsfValue * (rmsfData.max - rmsfData.min));
+        rmsfHTML = `
+          <div class="info-section">
+            <strong>RMSF (Flexibility):</strong> ${actualRMSF.toFixed(2)} Å
+          </div>
+        `;
+      }
+      
+      // Get contacts for this residue
+      let contactsHTML = '';
+      if (contactsData) {
+        const relatedContacts = contactsData.contacts.filter(c => 
+          c.residue1 === residueIndex || c.residue2 === residueIndex
+        ).slice(0, 3); // Top 3
+        
+        if (relatedContacts.length > 0) {
+          const contactText = relatedContacts.map(c => {
+            const otherRes = c.residue1 === residueIndex ? c.residue2 : c.residue1;
+            const other = residueMeta.residues[otherRes];
+            return `${other.resname}${other.resnum} (${(c.frequency*100).toFixed(0)}%)`;
+          }).join(', ');
+          
+          contactsHTML = `
+            <div class="info-section">
+              <strong>Top Contacts:</strong> ${contactText}
+            </div>
+          `;
+        }
+      }
+      
       // Build info HTML
       const infoHTML = `
         <div class="atom-info-panel">
@@ -334,6 +516,8 @@
           <div class="info-section">
             <strong>Hotspot Score:</strong> ${hotspotValue.toFixed(3)}
           </div>
+          ${rmsfHTML}
+          ${contactsHTML}
           <button id="closeInfoBtn" class="close-btn">Close</button>
         </div>
       `;
@@ -357,6 +541,47 @@
     document.getElementById('infoPanel').style.display = 'none';
   }
 
+  // ---- Top Contacts Panel ----
+  async function showTopContacts() {
+    if (!contactsData) {
+      alert("Contact data not available");
+      return;
+    }
+    
+    // Fetch residue metadata
+    const residueMeta = await fetch('/api/trajectory/residue_meta').then(r => r.json());
+    
+    // Build list
+    let html = '';
+    for (const contact of contactsData.contacts.slice(0, 20)) { // Top 20
+      const res1 = residueMeta.residues[contact.residue1];
+      const res2 = residueMeta.residues[contact.residue2];
+      
+      if (!res1 || !res2) continue;
+      
+      html += `
+        <div class="contact-item" onclick="selectContact(${contact.residue1}, ${contact.residue2})">
+          <strong>${res1.resname}${res1.resnum}</strong> ↔ <strong>${res2.resname}${res2.resnum}</strong>
+          <br>
+          <span style="opacity:0.7;">Contact frequency: ${(contact.frequency * 100).toFixed(1)}%</span>
+        </div>
+      `;
+    }
+    
+    document.getElementById('contactsList').innerHTML = html;
+    document.getElementById('contactsPanel').style.display = 'block';
+  }
+
+  window.selectContact = function(res1, res2) {
+    // Find and highlight both residues
+    for (let i = 0; i < atomMeshes.length; i++) {
+      const rIdx = atomResidueIdx[i];
+      if (rIdx === res1 || rIdx === res2) {
+        highlightAtom(i);
+      }
+    }
+  };
+
   // ---- playback / loading ----
   let playing = false, fi = 0, rafId;
 
@@ -364,7 +589,11 @@
     status.textContent = `loading frame ${idx}…`;
     const { xyz } = await (await fetch(`/api/trajectory/frame/${idx}`)).json();
     updateAtoms(xyz);
-    await applyHotspotColors(idx);
+    if (showRMSF && rmsfData) {
+      applyRMSFColors();
+    } else {
+      await applyHotspotColors(idx);
+    }
     status.textContent = `frame ${idx} loaded`;
   }
 
@@ -394,6 +623,11 @@
     btnPause.disabled = true;
     if (rafId) cancelAnimationFrame(rafId);
   };
+
+  // Expose functions to global scope for button handlers
+  window.toggleRMSFColoring = toggleRMSFColoring;
+  window.toggleContactNetwork = toggleContactNetwork;
+  window.showTopContacts = showTopContacts;
 
   (function renderLoop () {
     controls.update();
