@@ -218,6 +218,7 @@
   let contactsData = null;
   let contactLines = [];
   let showContacts = false;
+  const MAX_CONTACT_LINES = 50; // Maximum number of contact lines to display
 
   async function fetchContacts() {
     try {
@@ -259,7 +260,7 @@
           opacity: 0.3 
         });
         
-        for (const contact of contactsData.contacts.slice(0, 50)) { // Show top 50
+        for (const contact of contactsData.contacts.slice(0, MAX_CONTACT_LINES)) {
           const res1 = contact.residue1;
           const res2 = contact.residue2;
           

@@ -6,7 +6,6 @@ Outputs: viewer/contacts.json
 import json
 import numpy as np
 import MDAnalysis as mda
-from MDAnalysis.analysis import contacts
 
 # Load trajectory
 u = mda.Universe("viewer/topology.pdb", "viewer/trajectory.xtc")
@@ -24,15 +23,14 @@ print("Calculating contacts...")
 for ts in u.trajectory:
     positions = ca_atoms.positions
     
-    # Calculate pairwise distances
+    # Calculate all pairwise distances at once using scipy
+    from scipy.spatial.distance import pdist, squareform
+    dist_matrix = squareform(pdist(positions))
+    
+    # Find contacts within cutoff, excluding neighbors in sequence
     for i in range(n_residues):
-        for j in range(i + 1, n_residues):
-            # Skip neighboring residues in sequence
-            if abs(i - j) < 3:
-                continue
-            
-            dist = np.linalg.norm(positions[i] - positions[j])
-            if dist < contact_cutoff:
+        for j in range(i + 3, n_residues):  # Skip i+1, i+2 (neighbors)
+            if dist_matrix[i, j] < contact_cutoff:
                 contact_freq[i, j] += 1
                 contact_freq[j, i] += 1
 
