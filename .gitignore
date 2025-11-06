@@ -19,3 +19,4 @@ repo_structure.txt
 *.xtc_offsets.npz
 *.xtc_offsets.lock
 
+.trajectory.xtc_offsets.*
