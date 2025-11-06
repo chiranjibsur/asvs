@@ -72,6 +72,22 @@
   let points = null;      // THREE.Points
   let geometry = null;    // THREE.BufferGeometry
   let colorAttr = null;   // Float32Array attribute (per-vertex RGB)
+  let currentHotspots = {}; // Store current hotspot data for selection
+
+  // ---- Raycaster for atom/residue selection ----
+  const raycaster = new THREE.Raycaster();
+  raycaster.params.Points.threshold = 0.8; // Increase point picking threshold
+  const mouse = new THREE.Vector2();
+  let selectedAtom = null;
+
+  // Helper to get mouse position in normalized device coordinates
+  function onMouseMove(event) {
+    const rect = canvas.getBoundingClientRect();
+    mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+  }
+
+  canvas.addEventListener('mousemove', onMouseMove, false);
 
   // --- fetching helpers -----------------------------------------------------
   async function fetchFrameXYZ(frame) {
@@ -94,6 +110,7 @@
     // Build a mapping residueNumber(string) -> score
     // hotspots keys are strings "1".."N"
     const hmap = hotspots; // already string keyed
+    currentHotspots = hotspots; // Store for selection
     const nAtoms = xyz.length;
 
     if (!geometry) {
@@ -129,6 +146,110 @@
     geometry.computeBoundingSphere();
 
     statusEl.textContent = `frame ${frame} loaded`;
+  }
+
+  // ---- Atom/Residue selection functions ----
+  function onPointClick(event) {
+    // Update raycaster
+    raycaster.setFromCamera(mouse, camera);
+    
+    // Check for intersections with points
+    if (!points) return;
+    
+    const intersects = raycaster.intersectObject(points, false);
+    
+    if (intersects.length > 0) {
+      const atomIndex = intersects[0].index;
+      selectAtom(atomIndex);
+    } else {
+      // Clicked on empty space - deselect
+      deselectAtom();
+    }
+  }
+
+  canvas.addEventListener('click', onPointClick, false);
+
+  function selectAtom(atomIndex) {
+    selectedAtom = atomIndex;
+    displayAtomInfo(atomIndex);
+  }
+
+  function deselectAtom() {
+    selectedAtom = null;
+    hideAtomInfo();
+  }
+
+  async function displayAtomInfo(atomIndex) {
+    try {
+      // Get atom residue number
+      const resnum = residueMap[atomIndex];
+      const resnumStr = String(resnum);
+      
+      // Find residue in metadata
+      let residue = null;
+      if (residueMeta.length > 0) {
+        residue = residueMeta.find(r => r.resnum === resnum);
+      }
+      
+      // Get current frame
+      const currentFrame = parseInt(slider.value, 10);
+      
+      // Get coordinates
+      const posArr = geometry.attributes.position.array;
+      const p = atomIndex * 3;
+      const coords = [posArr[p], posArr[p + 1], posArr[p + 2]];
+      
+      // Get hotspot score
+      const hotspotValue = currentHotspots[resnumStr] || 0;
+      
+      // Build info HTML
+      let residueInfo = '';
+      if (residue) {
+        residueInfo = `<strong>Residue:</strong> ${residue.resname}${residue.resnum} (Chain ${residue.chain})`;
+      } else {
+        residueInfo = `<strong>Residue Number:</strong> ${resnum}`;
+      }
+      
+      const infoHTML = `
+        <div class="atom-info-panel">
+          <h3>Atom Information</h3>
+          <div class="info-section">
+            <strong>Atom Index:</strong> ${atomIndex}
+          </div>
+          <div class="info-section">
+            ${residueInfo}
+          </div>
+          <div class="info-section">
+            <strong>Coordinates:</strong><br>
+            X: ${coords[0].toFixed(2)} Å<br>
+            Y: ${coords[1].toFixed(2)} Å<br>
+            Z: ${coords[2].toFixed(2)} Å
+          </div>
+          <div class="info-section">
+            <strong>Hotspot Score:</strong> ${hotspotValue.toFixed(3)}
+          </div>
+          <button id="closeInfoBtn" class="close-btn">Close</button>
+        </div>
+      `;
+      
+      // Display the panel
+      const panel = document.getElementById('infoPanel');
+      panel.innerHTML = infoHTML;
+      panel.style.display = 'block';
+      
+      // Attach close button event listener
+      const closeBtn = document.getElementById('closeInfoBtn');
+      closeBtn.removeEventListener('click', deselectAtom);
+      closeBtn.addEventListener('click', deselectAtom);
+    } catch (error) {
+      console.error('Error displaying atom info:', error);
+      hideAtomInfo();
+    }
+  }
+
+  function hideAtomInfo() {
+    const panel = document.getElementById('infoPanel');
+    if (panel) panel.style.display = 'none';
   }
 
   // --- render loop ----------------------------------------------------------

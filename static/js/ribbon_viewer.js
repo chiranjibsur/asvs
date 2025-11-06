@@ -39,6 +39,20 @@
   window.addEventListener('resize', resize);
   resize();
 
+  // ---- Raycaster for residue selection ----
+  const raycaster = new THREE.Raycaster();
+  const mouse = new THREE.Vector2();
+  let selectedResidue = null;
+
+  // Helper to get mouse position in normalized device coordinates
+  function onMouseMove(event) {
+    const rect = canvas.getBoundingClientRect();
+    mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+  }
+
+  canvas.addEventListener('mousemove', onMouseMove, false);
+
   // --- color helpers (blue → white → red) ---
   function colorFromScore (s) {
     const t = Math.max(0, Math.min(1, +s || 0));
@@ -64,13 +78,19 @@
   }
 
   let tube;
+  let caPositions = []; // Store CA positions for interaction
+  let currentHotspots = {}; // Store current hotspot data
+  
   async function loadRibbon (frame) {
     status.textContent = `loading ribbon frame ${frame}…`;
 
     // 1) ordered Cα coordinates
     const ca = (await (await fetch(`/api/trajectory/ca/${frame}`)).json()).ca; // [[x,y,z], ...]
+    caPositions = ca; // Store for click detection
+    
     // 2) per-residue hotspot scores
     const hs = await fetchHotspots(frame);                                     // { "42": 0.71, ... }
+    currentHotspots = hs; // Store for display
 
     // build curve through Cα
     const pts   = ca.map(p => new THREE.Vector3(p[0], p[1], p[2]));
@@ -114,6 +134,119 @@
     scene.add(tube);
 
     status.textContent = `frame ${frame} loaded`;
+  }
+
+  // ---- Residue selection functions ----
+  function onRibbonClick(event) {
+    // Update raycaster
+    raycaster.setFromCamera(mouse, camera);
+    
+    // Check for intersections with the tube
+    if (!tube) return;
+    
+    const intersects = raycaster.intersectObject(tube, false);
+    
+    if (intersects.length > 0) {
+      const point = intersects[0].point;
+      
+      // Find the closest C-alpha to the clicked point
+      let closestIndex = 0;
+      let minDist = Infinity;
+      
+      for (let i = 0; i < caPositions.length; i++) {
+        const ca = caPositions[i];
+        const dx = point.x - ca[0];
+        const dy = point.y - ca[1];
+        const dz = point.z - ca[2];
+        const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
+        
+        if (dist < minDist) {
+          minDist = dist;
+          closestIndex = i;
+        }
+      }
+      
+      selectResidue(closestIndex);
+    } else {
+      // Clicked on empty space - deselect
+      deselectResidue();
+    }
+  }
+
+  canvas.addEventListener('click', onRibbonClick, false);
+
+  function selectResidue(residueIndex) {
+    selectedResidue = residueIndex;
+    displayResidueInfo(residueIndex);
+  }
+
+  function deselectResidue() {
+    selectedResidue = null;
+    hideResidueInfo();
+  }
+
+  async function displayResidueInfo(residueIndex) {
+    try {
+      // Get residue metadata
+      const residue = residueMeta.residues[residueIndex];
+      
+      if (!residue) {
+        console.warn(`Residue ${residueIndex} not found in metadata`);
+        return;
+      }
+      
+      // Get current frame coordinates
+      const currentFrame = parseInt(slider.value, 10);
+      const coords = caPositions[residueIndex];
+      
+      // Get hotspot data for this residue
+      const resnumKey = String(residue.resnum);
+      const hotspotValue = currentHotspots[resnumKey] 
+                        ?? currentHotspots[String(residueIndex+1)] 
+                        ?? currentHotspots[String(residueIndex)] 
+                        ?? 0;
+      
+      // Build info HTML
+      const infoHTML = `
+        <div class="residue-info-panel">
+          <h3>Residue Information</h3>
+          <div class="info-section">
+            <strong>Residue:</strong> ${residue.resname}${residue.resnum} (Chain ${residue.chain})
+          </div>
+          <div class="info-section">
+            <strong>Index:</strong> ${residueIndex}
+          </div>
+          <div class="info-section">
+            <strong>C-alpha Coordinates:</strong><br>
+            X: ${coords[0].toFixed(2)} Å<br>
+            Y: ${coords[1].toFixed(2)} Å<br>
+            Z: ${coords[2].toFixed(2)} Å
+          </div>
+          <div class="info-section">
+            <strong>Hotspot Score:</strong> ${hotspotValue.toFixed(3)}
+          </div>
+          <button id="closeInfoBtn" class="close-btn">Close</button>
+        </div>
+      `;
+      
+      // Display the panel
+      const panel = document.getElementById('infoPanel');
+      panel.innerHTML = infoHTML;
+      panel.style.display = 'block';
+      
+      // Attach close button event listener
+      const closeBtn = document.getElementById('closeInfoBtn');
+      closeBtn.removeEventListener('click', deselectResidue);
+      closeBtn.addEventListener('click', deselectResidue);
+    } catch (error) {
+      console.error('Error displaying residue info:', error);
+      hideResidueInfo();
+    }
+  }
+
+  function hideResidueInfo() {
+    const panel = document.getElementById('infoPanel');
+    if (panel) panel.style.display = 'none';
   }
 
   // UI wiring

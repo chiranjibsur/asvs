@@ -298,8 +298,138 @@ def api_atom_details(atom_id: int):
 
 ### Step 6: Testing
 
-#### 6.1 Manual Testing Checklist
+#### 6.1 How to Check if Phase 1 Works
 
+**Starting the Application:**
+
+1. **Install Dependencies (if not already done):**
+   ```bash
+   pip install -e .
+   ```
+
+2. **Start the Flask Server:**
+   ```bash
+   python app.py
+   ```
+   
+   The server should start on http://127.0.0.1:5000
+   
+   You should see output like:
+   ```
+   * Running on http://127.0.0.1:5000
+   * Restarting with stat
+   ```
+
+3. **Open Your Web Browser:**
+   - Navigate to http://localhost:5000/viewer/ballstick
+   - Or http://localhost:5000/viewer/ribbon for the ribbon viewer
+   - Or http://localhost:5000/viewer for the hotspot (points) viewer
+
+#### 6.2 Testing Ball-and-Stick Viewer
+
+Navigate to http://localhost:5000/viewer/ballstick
+
+- [ ] **Page loads successfully** - You should see a 3D molecular structure
+- [ ] **Load a frame** - Click "Load frame" button, atoms should appear
+- [ ] **Click on an atom** - Click directly on any sphere (atom)
+  - Info panel should appear on the right side of the screen
+  - Selected atom should turn yellow
+  - Panel should show:
+    - Atom element and index
+    - Residue name, number, and chain
+    - X, Y, Z coordinates
+    - Hotspot score
+- [ ] **Close the info panel** - Click the "Close" button
+  - Panel should disappear
+  - Yellow highlight should be removed
+- [ ] **Click on empty space** - Click on the black background
+  - Any selection should be cleared
+  - Info panel should close
+- [ ] **Select different atoms** - Click on multiple atoms
+  - Panel should update with new atom's information
+  - Only one atom should be highlighted at a time
+- [ ] **Test with animation** - Click "Play" button
+  - Animation should work smoothly
+  - You can click atoms during animation
+- [ ] **Check browser console** - Press F12 to open developer tools
+  - Should be no JavaScript errors
+
+#### 6.3 Testing Ribbon Viewer
+
+Navigate to http://localhost:5000/viewer/ribbon
+
+- [ ] **Page loads successfully** - You should see a ribbon/tube structure
+- [ ] **Click on the ribbon** - Click anywhere on the colored tube
+  - Info panel should appear
+  - Panel should show residue information for the closest C-alpha atom
+  - Should display:
+    - Residue name, number, and chain
+    - Residue index
+    - C-alpha coordinates
+    - Hotspot score
+- [ ] **Close the info panel** - Click the "Close" button
+  - Panel should disappear
+- [ ] **Click on empty space** - Selection should clear
+- [ ] **Click different parts of the ribbon** - Info should update
+- [ ] **Test with frame slider** - Move the slider
+  - Ribbon should update to new frame
+  - Click interactions should still work
+- [ ] **Check browser console** - Should be no errors
+
+#### 6.4 Testing Hotspot (Points) Viewer
+
+Navigate to http://localhost:5000/viewer
+
+- [ ] **Page loads successfully** - You should see colored points
+- [ ] **Load frame 0** - Click "Load frame 0" button
+- [ ] **Click on a point** - Click directly on any colored point
+  - Info panel should appear
+  - Panel should show:
+    - Atom index
+    - Residue information (if available)
+    - X, Y, Z coordinates
+    - Hotspot score
+- [ ] **Close the info panel** - Click the "Close" button
+- [ ] **Click on empty space** - Selection should clear
+- [ ] **Click different points** - Info should update
+- [ ] **Test animation** - Click "Play" button
+  - Animation should work
+  - Click interactions should work during playback
+- [ ] **Check browser console** - Should be no errors
+
+#### 6.5 Common Issues and Solutions
+
+**Issue: Clicking atoms does nothing**
+- **Solution:** Ensure the JavaScript files are loaded correctly. Check browser console (F12) for errors.
+- Verify that `ballstick_viewer.js`, `ribbon_viewer.js`, or `simple_visualizer.js` are loaded without errors.
+
+**Issue: Info panel doesn't appear**
+- **Solution:** Check that the `infoPanel` div exists in the HTML template.
+- Verify API endpoints are responding: try opening http://localhost:5000/api/trajectory/meta in your browser.
+
+**Issue: Wrong atom/residue selected**
+- **Solution:** This can happen with overlapping atoms. Try zooming in and clicking more precisely.
+- In the hotspot viewer, points may be small - try adjusting the raycaster threshold.
+
+**Issue: Server won't start**
+- **Solution:** Check that all dependencies are installed: `pip install -e .`
+- Verify that `viewer/topology.pdb` and `viewer/trajectory.xtc` files exist.
+- Check that port 5000 is not already in use.
+
+**Issue: "Failed to fetch" errors in console**
+- **Solution:** Ensure the Flask server is running.
+- Check that the API endpoints exist in `app.py`.
+- Verify data files exist in the `viewer/` directory.
+
+#### 6.6 Manual Testing Checklist
+
+Complete testing across all three viewers:
+
+#### 6.6 Manual Testing Checklist
+
+Complete testing across all three viewers:
+
+**Ball-and-Stick Viewer:**
 - [ ] Start the Flask server: `python app.py`
 - [ ] Navigate to http://localhost:5000/viewer/ballstick
 - [ ] Load a frame and verify atoms are visible
@@ -310,7 +440,23 @@ def api_atom_details(atom_id: int):
 - [ ] Click on different atoms - panel should update
 - [ ] Test with different frames using the slider
 
-#### 6.2 Browser Console Testing
+**Ribbon Viewer:**
+- [ ] Navigate to http://localhost:5000/viewer/ribbon
+- [ ] Verify ribbon structure is visible
+- [ ] Click on the ribbon - info panel should appear with residue info
+- [ ] Click on empty space - selection should clear
+- [ ] Test with frame slider
+- [ ] Verify coordinates and hotspot scores are displayed correctly
+
+**Hotspot (Points) Viewer:**
+- [ ] Navigate to http://localhost:5000/viewer
+- [ ] Click "Load frame 0" to load points
+- [ ] Click on a point - info panel should appear
+- [ ] Verify atom/residue information is displayed
+- [ ] Click on empty space - selection should clear
+- [ ] Test with animation (Play button)
+
+#### 6.7 Browser Console Testing
 
 Open browser console (F12) and test:
 
