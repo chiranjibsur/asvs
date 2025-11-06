@@ -1,5 +1,6 @@
 __pycache__/
 *.pdb
+!viewer/topology.pdb
 *.tmp
 *.log
 .vscode/
