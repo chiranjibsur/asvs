@@ -45,6 +45,14 @@
   const raycaster = new THREE.Raycaster();
   const mouse = new THREE.Vector2();
   let selectedAtom = null;
+  
+  // Reusable highlight material to prevent memory leaks
+  const highlightMaterial = new THREE.MeshStandardMaterial({
+    color: 0xffff00,  // Yellow highlight
+    emissive: 0x444400,
+    metalness: 0.0,
+    roughness: 0.5
+  });
 
   // Helper to get mouse position in normalized device coordinates
   function onMouseMove(event) {
@@ -259,15 +267,10 @@
     if (mesh) {
       // Save original material
       if (!mesh.userData.originalMaterial) {
-        mesh.userData.originalMaterial = mesh.material.clone();
+        mesh.userData.originalMaterial = mesh.material;
       }
-      // Apply highlight material (consistent with MeshStandardMaterial)
-      mesh.material = new THREE.MeshStandardMaterial({
-        color: 0xffff00,  // Yellow highlight
-        emissive: 0x444400,
-        metalness: 0.0,
-        roughness: 0.5
-      });
+      // Apply reusable highlight material
+      mesh.material = highlightMaterial;
     }
   }
 
@@ -275,7 +278,7 @@
     const mesh = atomMeshes[atomIndex];
     if (mesh && mesh.userData.originalMaterial) {
       mesh.material = mesh.userData.originalMaterial;
-      mesh.userData.originalMaterial = null;
+      delete mesh.userData.originalMaterial;
     }
   }
 
@@ -340,8 +343,10 @@
       panel.innerHTML = infoHTML;
       panel.style.display = 'block';
       
-      // Attach close button event listener
-      document.getElementById('closeInfoBtn').addEventListener('click', deselectAtom);
+      // Attach close button event listener (remove any previous listener to prevent memory leaks)
+      const closeBtn = document.getElementById('closeInfoBtn');
+      closeBtn.removeEventListener('click', deselectAtom);
+      closeBtn.addEventListener('click', deselectAtom);
     } catch (error) {
       console.error('Error displaying atom info:', error);
       hideAtomInfo();
