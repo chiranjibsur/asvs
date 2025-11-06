@@ -53,6 +53,29 @@
 
   canvas.addEventListener('mousemove', onMouseMove, false);
 
+  // ---- RMSF data and toggle ----
+  let rmsfData = null;
+  let showRMSF = false;
+
+  async function fetchRMSF() {
+    try {
+      const r = await fetch('/api/rmsf');
+      if (!r.ok) return null;
+      return await r.json();
+    } catch {
+      return null;
+    }
+  }
+
+  // Load RMSF on startup
+  rmsfData = await fetchRMSF();
+
+  function toggleRMSFColoring() {
+    showRMSF = !showRMSF;
+    const currentFrame = parseInt(slider.value, 10);
+    loadRibbon(currentFrame);
+  }
+
   // --- color helpers (blue → white → red) ---
   function colorFromScore (s) {
     const t = Math.max(0, Math.min(1, +s || 0));
@@ -88,9 +111,15 @@
     const ca = (await (await fetch(`/api/trajectory/ca/${frame}`)).json()).ca; // [[x,y,z], ...]
     caPositions = ca; // Store for click detection
     
-    // 2) per-residue hotspot scores
-    const hs = await fetchHotspots(frame);                                     // { "42": 0.71, ... }
-    currentHotspots = hs; // Store for display
+    // 2) per-residue hotspot scores or RMSF
+    let scoreData = {};
+    if (showRMSF && rmsfData) {
+      scoreData = rmsfData.normalized;
+    } else {
+      const hs = await fetchHotspots(frame);                                     // { "42": 0.71, ... }
+      currentHotspots = hs; // Store for display
+      scoreData = hs;
+    }
 
     // build curve through Cα
     const pts   = ca.map(p => new THREE.Vector3(p[0], p[1], p[2]));
@@ -109,11 +138,18 @@
     function scoreForRing (ringIdx) {
       // nearest residue index in [0, resnumsInOrder.length-1]
       const ridx = Math.round(ringIdx / (rings - 1) * (resnumsInOrder.length - 1));
-      const resnumKey = resnumsInOrder[ridx];        // prefer PDB resnum
-      const s = hs[resnumKey] ?? hs[String(ridx+1)]  // fallback: 1-based index
-                               ?? hs[String(ridx)]   // fallback: 0-based index
-                               ?? 0.0;
-      return s;
+      
+      if (showRMSF && rmsfData) {
+        // For RMSF, use 0-based index
+        return scoreData[String(ridx)] ?? 0.0;
+      } else {
+        // For hotspots, use resnum
+        const resnumKey = resnumsInOrder[ridx];        // prefer PDB resnum
+        const s = scoreData[resnumKey] ?? scoreData[String(ridx+1)]  // fallback: 1-based index
+                                 ?? scoreData[String(ridx)]   // fallback: 0-based index
+                                 ?? 0.0;
+        return s;
+      }
     }
 
     // paint each vertex by its ring’s score
@@ -206,6 +242,18 @@
                         ?? currentHotspots[String(residueIndex)] 
                         ?? 0;
       
+      // Get RMSF value
+      let rmsfHTML = '';
+      if (rmsfData && rmsfData.normalized) {
+        const rmsfValue = rmsfData.normalized[String(residueIndex)] || 0;
+        const actualRMSF = rmsfData.min + (rmsfValue * (rmsfData.max - rmsfData.min));
+        rmsfHTML = `
+          <div class="info-section">
+            <strong>RMSF (Flexibility):</strong> ${actualRMSF.toFixed(2)} Å
+          </div>
+        `;
+      }
+      
       // Build info HTML
       const infoHTML = `
         <div class="residue-info-panel">
@@ -225,6 +273,7 @@
           <div class="info-section">
             <strong>Hotspot Score:</strong> ${hotspotValue.toFixed(3)}
           </div>
+          ${rmsfHTML}
           <button id="closeInfoBtn" class="close-btn">Close</button>
         </div>
       `;
@@ -265,6 +314,9 @@
     loop();
   };
   btnPause.onclick = () => { playing = false; btnPause.disabled = true; cancelAnimationFrame(raf); };
+
+  // Expose toggleRMSFColoring to global scope for button handler
+  window.toggleRMSFColoring = toggleRMSFColoring;
 
   // initial render
   await loadRibbon(0);
