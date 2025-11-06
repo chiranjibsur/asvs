@@ -41,6 +41,28 @@
   window.addEventListener('resize', resize);
   resize();
 
+  // ---- Raycaster for atom selection ----
+  const raycaster = new THREE.Raycaster();
+  const mouse = new THREE.Vector2();
+  let selectedAtom = null;
+  
+  // Reusable highlight material to prevent memory leaks
+  const highlightMaterial = new THREE.MeshStandardMaterial({
+    color: 0xffff00,  // Yellow highlight
+    emissive: 0x444400,
+    metalness: 0.0,
+    roughness: 0.5
+  });
+
+  // Helper to get mouse position in normalized device coordinates
+  function onMouseMove(event) {
+    const rect = canvas.getBoundingClientRect();
+    mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+  }
+
+  canvas.addEventListener('mousemove', onMouseMove, false);
+
   // ---- atom metadata ----
   const atomInfo = await (await fetch('/api/trajectory/atoms')).json();
   const atoms = atomInfo.atoms;
@@ -84,6 +106,10 @@
 
   for (let i = 0; i < atoms.length; i++) {
     const m = new THREE.Mesh(atomGeom, makeAtomMaterial());
+    // Add atom index to userData for raycasting
+    m.userData.atomIndex = i;
+    m.userData.element = atoms[i].element;
+    m.userData.resnum = atoms[i].resnum;
     scene.add(m);
     atomMeshes.push(m);
   }
@@ -191,6 +217,145 @@
   // ---- initial placement ----
   updateAtoms(xyz0);
   await applyHotspotColors(0);
+
+  // ---- Atom selection functions ----
+  function onAtomClick(event) {
+    // Update raycaster
+    raycaster.setFromCamera(mouse, camera);
+    
+    // Check for intersections with atom meshes
+    const intersects = raycaster.intersectObjects(atomMeshes, false);
+    
+    if (intersects.length > 0) {
+      const clickedObject = intersects[0].object;
+      
+      // Find the atom index from the object's userData
+      if (clickedObject.userData && clickedObject.userData.atomIndex !== undefined) {
+        const atomIndex = clickedObject.userData.atomIndex;
+        selectAtom(atomIndex);
+      }
+    } else {
+      // Clicked on empty space - deselect
+      deselectAtom();
+    }
+  }
+
+  canvas.addEventListener('click', onAtomClick, false);
+
+  function selectAtom(atomIndex) {
+    // Store selected atom
+    selectedAtom = atomIndex;
+    
+    // Highlight the selected atom
+    highlightAtom(atomIndex);
+    
+    // Fetch and display atom details
+    displayAtomInfo(atomIndex);
+  }
+
+  function deselectAtom() {
+    if (selectedAtom !== null) {
+      unhighlightAtom(selectedAtom);
+      selectedAtom = null;
+      hideAtomInfo();
+    }
+  }
+
+  function highlightAtom(atomIndex) {
+    // Find the atom mesh
+    const mesh = atomMeshes[atomIndex];
+    if (mesh) {
+      // Save original material
+      if (!mesh.userData.originalMaterial) {
+        mesh.userData.originalMaterial = mesh.material;
+      }
+      // Apply reusable highlight material
+      mesh.material = highlightMaterial;
+    }
+  }
+
+  function unhighlightAtom(atomIndex) {
+    const mesh = atomMeshes[atomIndex];
+    if (mesh && mesh.userData.originalMaterial) {
+      mesh.material = mesh.userData.originalMaterial;
+      delete mesh.userData.originalMaterial;
+    }
+  }
+
+  async function displayAtomInfo(atomIndex) {
+    try {
+      // Get atom metadata
+      const atom = atoms[atomIndex];
+      const residueNum = atom.resnum;
+      
+      // Fetch residue metadata
+      const residueMeta = await fetch('/api/trajectory/residue_meta').then(r => {
+        if (!r.ok) throw new Error('Failed to fetch residue metadata');
+        return r.json();
+      });
+      const residue = residueMeta.residues.find(r => r.resnum === residueNum);
+      
+      if (!residue) {
+        console.warn(`Residue ${residueNum} not found in metadata`);
+        return;
+      }
+      
+      // Get current frame coordinates
+      const currentFrame = parseInt(slider.value, 10);
+      const frameData = await fetch(`/api/trajectory/frame/${currentFrame}`).then(r => {
+        if (!r.ok) throw new Error('Failed to fetch frame data');
+        return r.json();
+      });
+      const coords = frameData.xyz[atomIndex];
+      
+      // Fetch hotspot data for this residue
+      const hotspotData = await fetch(`/api/hotspots/${currentFrame}`).then(r => {
+        if (!r.ok) throw new Error('Failed to fetch hotspot data');
+        return r.json();
+      });
+      const hotspotValue = hotspotData[residue.index] || 0;
+      
+      // Build info HTML
+      const infoHTML = `
+        <div class="atom-info-panel">
+          <h3>Atom Information</h3>
+          <div class="info-section">
+            <strong>Atom:</strong> ${atom.element} (Index: ${atomIndex})
+          </div>
+          <div class="info-section">
+            <strong>Residue:</strong> ${residue.resname}${residue.resnum} (Chain ${residue.chain})
+          </div>
+          <div class="info-section">
+            <strong>Coordinates:</strong><br>
+            X: ${coords[0].toFixed(2)} Å<br>
+            Y: ${coords[1].toFixed(2)} Å<br>
+            Z: ${coords[2].toFixed(2)} Å
+          </div>
+          <div class="info-section">
+            <strong>Hotspot Score:</strong> ${hotspotValue.toFixed(3)}
+          </div>
+          <button id="closeInfoBtn" class="close-btn">Close</button>
+        </div>
+      `;
+      
+      // Display the panel
+      const panel = document.getElementById('infoPanel');
+      panel.innerHTML = infoHTML;
+      panel.style.display = 'block';
+      
+      // Attach close button event listener (remove any previous listener to prevent memory leaks)
+      const closeBtn = document.getElementById('closeInfoBtn');
+      closeBtn.removeEventListener('click', deselectAtom);
+      closeBtn.addEventListener('click', deselectAtom);
+    } catch (error) {
+      console.error('Error displaying atom info:', error);
+      hideAtomInfo();
+    }
+  }
+
+  function hideAtomInfo() {
+    document.getElementById('infoPanel').style.display = 'none';
+  }
 
   // ---- playback / loading ----
   let playing = false, fi = 0, rafId;

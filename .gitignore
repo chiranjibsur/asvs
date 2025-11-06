@@ -15,4 +15,7 @@ static/data/
 backups/
 2k39-bioemu-200-samples/
 repo_structure.txt
+# MDAnalysis cache files
+*.xtc_offsets.npz
+*.xtc_offsets.lock
 
