@@ -261,11 +261,12 @@
       if (!mesh.userData.originalMaterial) {
         mesh.userData.originalMaterial = mesh.material.clone();
       }
-      // Apply highlight material
-      mesh.material = new THREE.MeshPhongMaterial({
+      // Apply highlight material (consistent with MeshStandardMaterial)
+      mesh.material = new THREE.MeshStandardMaterial({
         color: 0xffff00,  // Yellow highlight
         emissive: 0x444400,
-        shininess: 100
+        metalness: 0.0,
+        roughness: 0.5
       });
     }
   }
@@ -279,57 +280,77 @@
   }
 
   async function displayAtomInfo(atomIndex) {
-    // Get atom metadata
-    const atom = atoms[atomIndex];
-    const residueNum = atom.resnum;
-    
-    // Fetch residue metadata
-    const residueMeta = await fetch('/api/trajectory/residue_meta').then(r => r.json());
-    const residue = residueMeta.residues.find(r => r.resnum === residueNum);
-    
-    // Get current frame coordinates
-    const currentFrame = parseInt(slider.value, 10);
-    const frameData = await fetch(`/api/trajectory/frame/${currentFrame}`).then(r => r.json());
-    const coords = frameData.xyz[atomIndex];
-    
-    // Fetch hotspot data for this residue
-    const hotspotData = await fetch(`/api/hotspots/${currentFrame}`).then(r => r.json());
-    const hotspotValue = hotspotData[residue.index] || 0;
-    
-    // Build info HTML
-    const infoHTML = `
-      <div class="atom-info-panel">
-        <h3>Atom Information</h3>
-        <div class="info-section">
-          <strong>Atom:</strong> ${atom.element} (Index: ${atomIndex})
+    try {
+      // Get atom metadata
+      const atom = atoms[atomIndex];
+      const residueNum = atom.resnum;
+      
+      // Fetch residue metadata
+      const residueMeta = await fetch('/api/trajectory/residue_meta').then(r => {
+        if (!r.ok) throw new Error('Failed to fetch residue metadata');
+        return r.json();
+      });
+      const residue = residueMeta.residues.find(r => r.resnum === residueNum);
+      
+      if (!residue) {
+        console.warn(`Residue ${residueNum} not found in metadata`);
+        return;
+      }
+      
+      // Get current frame coordinates
+      const currentFrame = parseInt(slider.value, 10);
+      const frameData = await fetch(`/api/trajectory/frame/${currentFrame}`).then(r => {
+        if (!r.ok) throw new Error('Failed to fetch frame data');
+        return r.json();
+      });
+      const coords = frameData.xyz[atomIndex];
+      
+      // Fetch hotspot data for this residue
+      const hotspotData = await fetch(`/api/hotspots/${currentFrame}`).then(r => {
+        if (!r.ok) throw new Error('Failed to fetch hotspot data');
+        return r.json();
+      });
+      const hotspotValue = hotspotData[residue.index] || 0;
+      
+      // Build info HTML
+      const infoHTML = `
+        <div class="atom-info-panel">
+          <h3>Atom Information</h3>
+          <div class="info-section">
+            <strong>Atom:</strong> ${atom.element} (Index: ${atomIndex})
+          </div>
+          <div class="info-section">
+            <strong>Residue:</strong> ${residue.resname}${residue.resnum} (Chain ${residue.chain})
+          </div>
+          <div class="info-section">
+            <strong>Coordinates:</strong><br>
+            X: ${coords[0].toFixed(2)} Å<br>
+            Y: ${coords[1].toFixed(2)} Å<br>
+            Z: ${coords[2].toFixed(2)} Å
+          </div>
+          <div class="info-section">
+            <strong>Hotspot Score:</strong> ${hotspotValue.toFixed(3)}
+          </div>
+          <button id="closeInfoBtn" class="close-btn">Close</button>
         </div>
-        <div class="info-section">
-          <strong>Residue:</strong> ${residue.resname}${residue.resnum} (Chain ${residue.chain})
-        </div>
-        <div class="info-section">
-          <strong>Coordinates:</strong><br>
-          X: ${coords[0].toFixed(2)} Å<br>
-          Y: ${coords[1].toFixed(2)} Å<br>
-          Z: ${coords[2].toFixed(2)} Å
-        </div>
-        <div class="info-section">
-          <strong>Hotspot Score:</strong> ${hotspotValue.toFixed(3)}
-        </div>
-        <button onclick="deselectAtom()" class="close-btn">Close</button>
-      </div>
-    `;
-    
-    // Display the panel
-    document.getElementById('infoPanel').innerHTML = infoHTML;
-    document.getElementById('infoPanel').style.display = 'block';
+      `;
+      
+      // Display the panel
+      const panel = document.getElementById('infoPanel');
+      panel.innerHTML = infoHTML;
+      panel.style.display = 'block';
+      
+      // Attach close button event listener
+      document.getElementById('closeInfoBtn').addEventListener('click', deselectAtom);
+    } catch (error) {
+      console.error('Error displaying atom info:', error);
+      hideAtomInfo();
+    }
   }
 
   function hideAtomInfo() {
     document.getElementById('infoPanel').style.display = 'none';
   }
-
-  // Make deselectAtom available globally for the close button
-  window.deselectAtom = deselectAtom;
 
   // ---- playback / loading ----
   let playing = false, fi = 0, rafId;
