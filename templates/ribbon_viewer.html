@@ -60,6 +60,49 @@
     .close-btn:hover{
       background:#2d3a4f;
     }
+    
+    /* Clip Plane Controls */
+    #clipPlaneControls{
+      position:absolute;
+      top:80px;
+      left:20px;
+      width:260px;
+      background:rgba(26, 28, 34, 0.95);
+      border:1px solid #2b2f3a;
+      border-radius:10px;
+      padding:16px;
+      display:none;
+      z-index:100;
+      box-shadow:0 8px 32px rgba(0, 0, 0, 0.4);
+    }
+    
+    #clipPlaneControls h3{
+      margin:0 0 12px 0;
+      color:#e9eaee;
+      font-size:16px;
+      font-weight:600;
+    }
+    
+    .clip-control{
+      margin-bottom:12px;
+    }
+    
+    .clip-control label{
+      color:#b9beca;
+      font-size:13px;
+      margin-bottom:4px;
+      display:block;
+    }
+    
+    .clip-select{
+      width:100%;
+      padding:6px;
+      background:#1f232b;
+      color:#e9eaee;
+      border:1px solid #2b2f3a;
+      border-radius:6px;
+      font-size:13px;
+    }
   </style>
 </head>
 <body>
@@ -72,6 +115,8 @@
       <button class="btn" id="btnPlay">Play</button>
       <button class="btn" id="btnPause" disabled>Pause</button>
       <button class="btn" id="btnToggleRMSF">Show RMSF</button>
+      <button class="btn" id="btnToggleClipping">Enable Clipping</button>
+      <button class="btn" id="btnExportPNG">Export PNG</button>
     </div>
     <div class="viewer"><canvas id="canvas"></canvas></div>
     <div id="status" style="margin-top:8px;font:12px/1.3 monospace;color:#9aa3b2">initializing…</div>
@@ -79,6 +124,27 @@
 
   <!-- Residue Info Panel -->
   <div id="infoPanel"></div>
+
+  <!-- Clip Plane Controls -->
+  <div id="clipPlaneControls">
+    <h3>Clip Plane</h3>
+    
+    <div class="clip-control">
+      <label>Axis</label>
+      <select id="clipAxis" class="clip-select">
+        <option value="x">X-Axis</option>
+        <option value="y" selected>Y-Axis</option>
+        <option value="z">Z-Axis</option>
+      </select>
+    </div>
+    
+    <div class="clip-control">
+      <label>Position: <span id="clipValue">0</span></label>
+      <input type="range" id="clipSlider" min="-50" max="50" value="0" step="0.5" style="width:100%;" />
+    </div>
+    
+    <button id="closeClipBtn" class="close-btn">Close</button>
+  </div>
 
   <script src="/static/lib/three.min.js"></script>
   <script src="/static/lib/OrbitControls.js"></script>
@@ -89,6 +155,34 @@
       const btn = document.getElementById('btnToggleRMSF');
       btn.textContent = btn.textContent === 'Show RMSF' ? 'Show Hotspots' : 'Show RMSF';
       window.toggleRMSFColoring();
+    });
+    
+    // Phase 3: Clipping controls
+    document.getElementById('btnToggleClipping').addEventListener('click', () => {
+      const btn = document.getElementById('btnToggleClipping');
+      const enabled = window.toggleClipping();
+      btn.textContent = enabled ? 'Disable Clipping' : 'Enable Clipping';
+      document.getElementById('clipPlaneControls').style.display = enabled ? 'block' : 'none';
+    });
+    
+    document.getElementById('clipAxis').addEventListener('change', (e) => {
+      window.updateClipPlane(e.target.value, parseFloat(document.getElementById('clipSlider').value));
+    });
+    
+    document.getElementById('clipSlider').addEventListener('input', (e) => {
+      const value = parseFloat(e.target.value);
+      document.getElementById('clipValue').textContent = value.toFixed(1);
+      const axis = document.getElementById('clipAxis').value;
+      window.updateClipPlane(axis, value);
+    });
+    
+    document.getElementById('closeClipBtn').addEventListener('click', () => {
+      document.getElementById('btnToggleClipping').click();
+    });
+    
+    // Phase 3: Export PNG
+    document.getElementById('btnExportPNG').addEventListener('click', () => {
+      window.exportScreenshot('png');
     });
   </script>
 </body>

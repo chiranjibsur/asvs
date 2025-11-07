@@ -318,6 +318,54 @@
   // Expose toggleRMSFColoring to global scope for button handler
   window.toggleRMSFColoring = toggleRMSFColoring;
 
+  // ---- Phase 3: Simplified Clip Plane for Ribbon ----
+  let clipPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  let clipEnabled = false;
+
+  function toggleClipping() {
+    clipEnabled = !clipEnabled;
+    renderer.localClippingEnabled = clipEnabled;
+    
+    // Apply clipping to tube material if it exists
+    if (tube && tube.material) {
+      tube.material.clippingPlanes = clipEnabled ? [clipPlane] : [];
+      tube.material.needsUpdate = true;
+    }
+    
+    return clipEnabled;
+  }
+
+  function updateClipPlane(axis, value) {
+    switch(axis) {
+      case 'x':
+        clipPlane.normal.set(1, 0, 0);
+        break;
+      case 'y':
+        clipPlane.normal.set(0, 1, 0);
+        break;
+      case 'z':
+        clipPlane.normal.set(0, 0, 1);
+        break;
+    }
+    clipPlane.constant = value;
+  }
+
+  // ---- Phase 3: Export functionality ----
+  function exportScreenshot(format = 'png') {
+    renderer.render(scene, camera);
+    const dataURL = canvas.toDataURL(`image/${format}`);
+    const link = document.createElement('a');
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const currentFrame = parseInt(slider.value, 10);
+    link.download = `ribbon-view-frame${currentFrame}-${timestamp}.${format}`;
+    link.href = dataURL;
+    link.click();
+  }
+
+  window.toggleClipping = toggleClipping;
+  window.updateClipPlane = updateClipPlane;
+  window.exportScreenshot = exportScreenshot;
+
   // initial render
   await loadRibbon(0);
   (function render () { controls.update(); renderer.render(scene, camera); requestAnimationFrame(render); })();
