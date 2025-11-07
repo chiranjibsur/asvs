@@ -189,7 +189,7 @@
       border-radius:8px;
       padding:8px;
       display:none;
-      z-index:101;
+      z-index:1000;
       box-shadow:0 8px 32px rgba(0, 0, 0, 0.4);
     }
     
@@ -356,9 +356,7 @@
     
     document.getElementById('btnAddPlane').addEventListener('click', () => {
       const index = window.addClipPlane();
-      if (index === -1) {
-        alert('Maximum of 3 clip planes reached');
-      } else {
+      if (index >= 0) {
         console.log('Added clip plane', index);
       }
     });

@@ -126,6 +126,16 @@
   function addClipPlane() {
     if (clipPlanes.length >= MAX_UI_PLANES) {
       console.warn(`Maximum of ${MAX_UI_PLANES} clip planes reached`);
+      // Show warning in status area instead of alert
+      if (status) {
+        const oldText = status.textContent;
+        status.textContent = `⚠ Maximum of ${MAX_UI_PLANES} clip planes reached`;
+        status.style.color = '#ffaa00';
+        setTimeout(() => {
+          status.textContent = oldText;
+          status.style.color = '#9aa3b2';
+        }, 3000);
+      }
       return -1;
     }
     return createClipPlane(new THREE.Vector3(0, 1, 0), 0);
@@ -565,7 +575,16 @@
 
   function exportMeasurements() {
     if (measurements.length === 0) {
-      alert("No measurements to export");
+      console.log("No measurements to export");
+      if (status) {
+        const oldText = status.textContent;
+        status.textContent = "ℹ No measurements to export";
+        status.style.color = '#6bb6ff';
+        setTimeout(() => {
+          status.textContent = oldText;
+          status.style.color = '#9aa3b2';
+        }, 3000);
+      }
       return;
     }
     
@@ -603,7 +622,16 @@
 
   function exportContactsData() {
     if (!contactsData) {
-      alert("No contacts data available");
+      console.log("No contacts data available");
+      if (status) {
+        const oldText = status.textContent;
+        status.textContent = "ℹ No contacts data available";
+        status.style.color = '#6bb6ff';
+        setTimeout(() => {
+          status.textContent = oldText;
+          status.style.color = '#9aa3b2';
+        }, 3000);
+      }
       return;
     }
     
