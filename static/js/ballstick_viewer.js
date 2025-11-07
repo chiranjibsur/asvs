@@ -41,6 +41,120 @@
   window.addEventListener('resize', resize);
   resize();
 
+  // ---- Configuration Constants ----
+  const MAX_UI_PLANES = 3;
+  const PERFORMANCE_FPS_WARNING = 30;
+
+  // ---- Clip Plane Implementation ----
+  let clipPlanes = [];
+  let clipPlaneHelpers = [];
+  let enableClipping = false;
+  let showPlaneHelpers = true;
+
+  function createClipPlane(normal = new THREE.Vector3(0, 1, 0), constant = 0) {
+    const plane = new THREE.Plane(normal, constant);
+    clipPlanes.push(plane);
+    
+    // Create visual helper
+    const helper = new THREE.PlaneHelper(plane, 50, 0xffff00);
+    helper.visible = enableClipping && showPlaneHelpers;
+    scene.add(helper);
+    clipPlaneHelpers.push(helper);
+    
+    // Update renderer clipping planes
+    renderer.clippingPlanes = clipPlanes;
+    renderer.localClippingEnabled = enableClipping;
+    
+    return clipPlanes.length - 1;
+  }
+
+  function toggleClipping() {
+    enableClipping = !enableClipping;
+    renderer.localClippingEnabled = enableClipping;
+    
+    clipPlaneHelpers.forEach(helper => {
+      helper.visible = enableClipping && showPlaneHelpers;
+    });
+    
+    return enableClipping;
+  }
+
+  function togglePlaneHelpers() {
+    showPlaneHelpers = !showPlaneHelpers;
+    clipPlaneHelpers.forEach(helper => {
+      helper.visible = enableClipping && showPlaneHelpers;
+    });
+    return showPlaneHelpers;
+  }
+
+  function updateClipPlane(index, axis, value) {
+    if (index >= clipPlanes.length) return;
+    
+    const plane = clipPlanes[index];
+    
+    // Update plane based on axis
+    switch(axis) {
+      case 'x':
+        plane.normal.set(1, 0, 0);
+        break;
+      case 'y':
+        plane.normal.set(0, 1, 0);
+        break;
+      case 'z':
+        plane.normal.set(0, 0, 1);
+        break;
+    }
+    
+    plane.constant = value;
+    if (clipPlaneHelpers[index]) {
+      clipPlaneHelpers[index].updateMatrixWorld();
+    }
+  }
+
+  function removeClipPlane(index) {
+    if (index >= clipPlanes.length) return;
+    
+    clipPlanes.splice(index, 1);
+    
+    const helper = clipPlaneHelpers[index];
+    scene.remove(helper);
+    clipPlaneHelpers.splice(index, 1);
+    
+    renderer.clippingPlanes = clipPlanes;
+  }
+
+  function addClipPlane() {
+    if (clipPlanes.length >= MAX_UI_PLANES) {
+      console.warn(`Maximum of ${MAX_UI_PLANES} clip planes reached`);
+      // Show warning in status area instead of alert
+      if (status) {
+        const oldText = status.textContent;
+        status.textContent = `⚠ Maximum of ${MAX_UI_PLANES} clip planes reached`;
+        status.style.color = '#ffaa00';
+        setTimeout(() => {
+          status.textContent = oldText;
+          status.style.color = '#9aa3b2';
+        }, 3000);
+      }
+      return -1;
+    }
+    return createClipPlane(new THREE.Vector3(0, 1, 0), 0);
+  }
+
+  function resetClipPlanes() {
+    // Remove all planes except the first one
+    while (clipPlanes.length > 1) {
+      removeClipPlane(clipPlanes.length - 1);
+    }
+    // Reset first plane
+    if (clipPlanes.length > 0) {
+      updateClipPlane(0, 'y', 0);
+    }
+  }
+
+  // Initialize with one clip plane
+  createClipPlane(new THREE.Vector3(0, 1, 0), 0);
+
   // ---- Raycaster for atom selection ----
   const raycaster = new THREE.Raycaster();
   const mouse = new THREE.Vector2();
@@ -318,6 +432,229 @@
     }
   }
 
+  // ---- Distance Measurement Tool ----
+  let measurementMode = false;
+  let measurementPoints = [];
+  let measurementLines = [];
+  let measurementMarkers = [];
+  let measurements = []; // Store measurement data
+  let persistMeasurements = false;
+
+  function toggleMeasurementMode() {
+    measurementMode = !measurementMode;
+    
+    // Update cursor style
+    canvas.style.cursor = measurementMode ? 'crosshair' : 'default';
+    
+    return measurementMode;
+  }
+
+  function togglePersistMeasurements() {
+    persistMeasurements = !persistMeasurements;
+    return persistMeasurements;
+  }
+
+  function addMeasurementPoint(position, atomIndex) {
+    measurementPoints.push({ position: position.clone(), atomIndex });
+    
+    // Create sphere marker
+    const geometry = new THREE.SphereGeometry(0.5, 16, 16);
+    const material = new THREE.MeshBasicMaterial({ color: 0xff00ff });
+    const marker = new THREE.Mesh(geometry, material);
+    marker.position.copy(position);
+    scene.add(marker);
+    measurementMarkers.push(marker);
+    
+    // If we have 2 points, create measurement line
+    if (measurementPoints.length === 2) {
+      createDistanceMeasurement();
+      measurementPoints = []; // Reset for next measurement
+    }
+  }
+
+  function createDistanceMeasurement() {
+    const p1 = measurementPoints[0].position;
+    const p2 = measurementPoints[1].position;
+    const atom1 = measurementPoints[0].atomIndex;
+    const atom2 = measurementPoints[1].atomIndex;
+    
+    // Calculate distance
+    const distance = p1.distanceTo(p2);
+    
+    // Create line
+    const points = [p1, p2];
+    const geometry = new THREE.BufferGeometry().setFromPoints(points);
+    const material = new THREE.LineBasicMaterial({ 
+      color: 0xff00ff, 
+      linewidth: 2 
+    });
+    const line = new THREE.Line(geometry, material);
+    scene.add(line);
+    measurementLines.push(line);
+    
+    // Store measurement info
+    const currentFrame = parseInt(slider.value, 10);
+    const measurement = {
+      id: measurements.length + 1,
+      atom1,
+      atom2,
+      distance,
+      frame: currentFrame,
+      unit: 'Å'
+    };
+    measurements.push(measurement);
+    
+    console.log(`Distance: ${distance.toFixed(2)} Å (Atom ${atom1} ↔ Atom ${atom2})`);
+    
+    // Update UI
+    updateMeasurementsList();
+  }
+
+  function clearMeasurements() {
+    measurementPoints = [];
+    
+    measurementLines.forEach(line => {
+      scene.remove(line);
+      line.geometry.dispose();
+      line.material.dispose();
+    });
+    measurementLines = [];
+    
+    measurementMarkers.forEach(marker => {
+      scene.remove(marker);
+      marker.geometry.dispose();
+      marker.material.dispose();
+    });
+    measurementMarkers = [];
+    
+    measurements = [];
+    
+    // Clear UI list
+    updateMeasurementsList();
+  }
+
+  function updateMeasurementsList() {
+    const listElement = document.getElementById('measurementsList');
+    if (!listElement) return;
+    
+    if (measurements.length === 0) {
+      listElement.innerHTML = '<div style="color:#9aa3b2;font-size:12px;text-align:center;">No measurements yet</div>';
+      return;
+    }
+    
+    let html = '';
+    for (const m of measurements) {
+      html += `
+        <div class="measurement-item">
+          <strong>Distance:</strong> ${m.distance.toFixed(2)} ${m.unit}<br>
+          <span style="opacity:0.7;">Atom ${m.atom1} ↔ Atom ${m.atom2}</span>
+          ${persistMeasurements ? `<br><span style="opacity:0.5;font-size:11px;">Frame ${m.frame}</span>` : ''}
+        </div>
+      `;
+    }
+    
+    listElement.innerHTML = html;
+  }
+
+  // ---- Export Functionality ----
+  function exportScreenshot(format = 'png') {
+    // Render the scene
+    renderer.render(scene, camera);
+    
+    // Get canvas data
+    const dataURL = canvas.toDataURL(`image/${format}`);
+    
+    // Create download link
+    const link = document.createElement('a');
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const currentFrame = parseInt(slider.value, 10);
+    link.download = `molecular-view-frame${currentFrame}-${timestamp}.${format}`;
+    link.href = dataURL;
+    link.click();
+  }
+
+  function exportMeasurements() {
+    if (measurements.length === 0) {
+      console.log("No measurements to export");
+      if (status) {
+        const oldText = status.textContent;
+        status.textContent = "ℹ No measurements to export";
+        status.style.color = '#6bb6ff';
+        setTimeout(() => {
+          status.textContent = oldText;
+          status.style.color = '#9aa3b2';
+        }, 3000);
+      }
+      return;
+    }
+    
+    const currentFrame = parseInt(slider.value, 10);
+    const data = {
+      timestamp: new Date().toISOString(),
+      frame: currentFrame,
+      camera: {
+        position: {
+          x: camera.position.x,
+          y: camera.position.y,
+          z: camera.position.z
+        },
+        rotation: {
+          x: camera.rotation.x,
+          y: camera.rotation.y,
+          z: camera.rotation.z
+        }
+      },
+      measurements: measurements
+    };
+    
+    const blob = new Blob([JSON.stringify(data, null, 2)], { 
+      type: 'application/json' 
+    });
+    
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    link.download = `measurements-${timestamp}.json`;
+    link.href = url;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function exportContactsData() {
+    if (!contactsData) {
+      console.log("No contacts data available");
+      if (status) {
+        const oldText = status.textContent;
+        status.textContent = "ℹ No contacts data available";
+        status.style.color = '#6bb6ff';
+        setTimeout(() => {
+          status.textContent = oldText;
+          status.style.color = '#9aa3b2';
+        }, 3000);
+      }
+      return;
+    }
+    
+    const currentFrame = parseInt(slider.value, 10);
+    const csv = convertContactsToCSV(contactsData.contacts, currentFrame);
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    link.download = `contacts-frame${currentFrame}-${timestamp}.csv`;
+    link.href = url;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function convertContactsToCSV(contacts, frame) {
+    const headers = 'Residue1,Residue2,Frequency,Frame\n';
+    const rows = contacts.slice(0, 50).map(c => 
+      `${c.residue1},${c.residue2},${c.frequency},${frame}`
+    ).join('\n');
+    return headers + rows;
+  }
+
   // ---- hotspot coloring (strict BWR, no green) ----
   function colorBWR (t) {
     // t in [0,1] → blue(0,0,1) → white(1,1,1) → red(1,0,0)
@@ -380,11 +717,20 @@
       // Find the atom index from the object's userData
       if (clickedObject.userData && clickedObject.userData.atomIndex !== undefined) {
         const atomIndex = clickedObject.userData.atomIndex;
-        selectAtom(atomIndex);
+        
+        // If in measurement mode, add measurement point instead of selecting
+        if (measurementMode) {
+          const position = clickedObject.position.clone();
+          addMeasurementPoint(position, atomIndex);
+        } else {
+          selectAtom(atomIndex);
+        }
       }
     } else {
-      // Clicked on empty space - deselect
-      deselectAtom();
+      // Clicked on empty space - deselect (only if not in measurement mode)
+      if (!measurementMode) {
+        deselectAtom();
+      }
     }
   }
 
@@ -629,6 +975,20 @@
   window.toggleRMSFColoring = toggleRMSFColoring;
   window.toggleContactNetwork = toggleContactNetwork;
   window.showTopContacts = showTopContacts;
+  
+  // Phase 3 functions
+  window.toggleClipping = toggleClipping;
+  window.togglePlaneHelpers = togglePlaneHelpers;
+  window.updateClipPlane = updateClipPlane;
+  window.addClipPlane = addClipPlane;
+  window.removeClipPlane = removeClipPlane;
+  window.resetClipPlanes = resetClipPlanes;
+  window.toggleMeasurementMode = toggleMeasurementMode;
+  window.togglePersistMeasurements = togglePersistMeasurements;
+  window.clearMeasurements = clearMeasurements;
+  window.exportScreenshot = exportScreenshot;
+  window.exportMeasurements = exportMeasurements;
+  window.exportContactsData = exportContactsData;
 
   (function renderLoop () {
     controls.update();
