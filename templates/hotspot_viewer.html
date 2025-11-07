@@ -111,6 +111,7 @@
         <button class="btn" id="btnLoad">Load frame 0</button>
         <button class="btn" id="btnPlay">Play</button>
         <button class="btn" id="btnPause" disabled>Pause</button>
+        <button class="btn" id="btnToggleRMSF">Show RMSF</button>
       </div>
 
       <div class="viewer">
@@ -137,5 +138,13 @@
     <script src="/static/lib/three.min.js"></script>
     <script src="/static/lib/OrbitControls.js"></script>
     <script src="/static/js/simple_visualizer.js"></script>
+    <script>
+      // Add button event listener
+      document.getElementById('btnToggleRMSF').addEventListener('click', () => {
+        const btn = document.getElementById('btnToggleRMSF');
+        btn.textContent = btn.textContent === 'Show RMSF' ? 'Show Hotspots' : 'Show RMSF';
+        window.toggleRMSFColoring();
+      });
+    </script>
   </body>
 </html>

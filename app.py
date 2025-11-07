@@ -137,6 +137,42 @@ def api_ca_frame(frame: int):
     ca = adapter.get_ca_xyz(frame)
     return jsonify({"frame": frame, "ca": ca})
 
+@app.route("/api/rmsf")
+def api_rmsf():
+    """
+    Returns per-residue RMSF (flexibility) data.
+    """
+    rmsf_path = os.environ.get(
+        "ASVS_RMSF",
+        os.path.join("viewer", "rmsf_residue.json")
+    )
+    
+    if not os.path.isfile(rmsf_path):
+        return jsonify({"error": "RMSF data not found"}), 404
+    
+    with open(rmsf_path, "r") as f:
+        data = json.load(f)
+    
+    return jsonify(data)
+
+@app.route("/api/contacts")
+def api_contacts():
+    """
+    Returns residue-residue contact network data.
+    """
+    contacts_path = os.environ.get(
+        "ASVS_CONTACTS",
+        os.path.join("viewer", "contacts.json")
+    )
+    
+    if not os.path.isfile(contacts_path):
+        return jsonify({"error": "Contacts data not found"}), 404
+    
+    with open(contacts_path, "r") as f:
+        data = json.load(f)
+    
+    return jsonify(data)
+
 @app.route("/viewer/ballstick")
 def viewer_ballstick():
     return render_template("ballstick_viewer.html")

@@ -89,6 +89,29 @@
 
   canvas.addEventListener('mousemove', onMouseMove, false);
 
+  // ---- RMSF data and toggle ----
+  let rmsfData = null;
+  let showRMSF = false;
+
+  async function fetchRMSF() {
+    try {
+      const r = await fetch('/api/rmsf');
+      if (!r.ok) return null;
+      return await r.json();
+    } catch {
+      return null;
+    }
+  }
+
+  // Load RMSF on startup
+  rmsfData = await fetchRMSF();
+
+  function toggleRMSFColoring() {
+    showRMSF = !showRMSF;
+    const currentFrame = parseInt(slider.value, 10);
+    loadFrame(currentFrame);
+  }
+
   // --- fetching helpers -----------------------------------------------------
   async function fetchFrameXYZ(frame) {
     const j = await getJSON(`/api/trajectory/frame/${frame}`);
@@ -102,15 +125,20 @@
   async function loadFrame(frame) {
     statusEl.textContent = `loading frame ${frame}…`;
 
-    const [xyz, hotspots] = await Promise.all([
-      fetchFrameXYZ(frame),
-      fetchHotspots(frame)
-    ]);
+    let xyz, scoreData;
+    if (showRMSF && rmsfData) {
+      // Use RMSF coloring
+      xyz = await fetchFrameXYZ(frame);
+      scoreData = rmsfData.normalized;
+    } else {
+      // Use hotspot coloring
+      [xyz, scoreData] = await Promise.all([
+        fetchFrameXYZ(frame),
+        fetchHotspots(frame)
+      ]);
+      currentHotspots = scoreData; // Store for selection
+    }
 
-    // Build a mapping residueNumber(string) -> score
-    // hotspots keys are strings "1".."N"
-    const hmap = hotspots; // already string keyed
-    currentHotspots = hotspots; // Store for selection
     const nAtoms = xyz.length;
 
     if (!geometry) {
@@ -133,7 +161,16 @@
     for (let i = 0; i < nAtoms; i++) {
       const [x, y, z] = xyz[i];
       const resnum = String(residueMap[i]); // PDB residue number as string
-      const s = hmap[resnum] !== undefined ? hmap[resnum] : 0.0;
+      
+      let s;
+      if (showRMSF && rmsfData) {
+        // For RMSF, find residue index (0-based) from resnum
+        const residueIdx = residueMeta.findIndex(r => r.resnum === parseInt(resnum));
+        s = scoreData[String(residueIdx)] || 0.0;
+      } else {
+        s = scoreData[resnum] !== undefined ? scoreData[resnum] : 0.0;
+      }
+      
       const { r, g, b } = colorFromScore01(s);
 
       const p = i * 3;
@@ -202,6 +239,19 @@
       // Get hotspot score
       const hotspotValue = currentHotspots[resnumStr] || 0;
       
+      // Get RMSF value
+      let rmsfHTML = '';
+      if (rmsfData && rmsfData.normalized && residue) {
+        const residueIdx = residue.index;
+        const rmsfValue = rmsfData.normalized[String(residueIdx)] || 0;
+        const actualRMSF = rmsfData.min + (rmsfValue * (rmsfData.max - rmsfData.min));
+        rmsfHTML = `
+          <div class="info-section">
+            <strong>RMSF (Flexibility):</strong> ${actualRMSF.toFixed(2)} Å
+          </div>
+        `;
+      }
+      
       // Build info HTML
       let residueInfo = '';
       if (residue) {
@@ -228,6 +278,7 @@
           <div class="info-section">
             <strong>Hotspot Score:</strong> ${hotspotValue.toFixed(3)}
           </div>
+          ${rmsfHTML}
           <button id="closeInfoBtn" class="close-btn">Close</button>
         </div>
       `;
@@ -311,6 +362,9 @@
     btnPause.disabled = true;
     if (playHandle) { clearTimeout(playHandle); playHandle = null; }
   });
+
+  // Expose toggleRMSFColoring to global scope for button handler
+  window.toggleRMSFColoring = toggleRMSFColoring;
 
   // Auto-load frame 0 on init
   await loadFrame(0);
