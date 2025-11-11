@@ -72,6 +72,21 @@ def api_residue_map():
     resnos = adapter.get_residue_map()
     return jsonify({"resnos": _to_serializable(resnos)})
 
+@app.route("/api/trajectory/atom_residue_index")
+def api_atom_residue_index():
+    """
+    Returns mapping from atom index to residue index (0-based).
+    This is the same as residue_map but converts PDB resnums to 0-based indices.
+    Returns: [0, 0, 0, 1, 1, 1, 2, 2, ...]  # len == n_atoms
+    """
+    resnos = adapter.get_residue_map()
+    # Build resnum -> index mapping
+    residues = adapter.get_residue_table()
+    resnum_to_index = {r["resnum"]: r["index"] for r in residues}
+    # Convert resnums to indices
+    indices = [resnum_to_index.get(rn, 0) for rn in resnos]
+    return jsonify(_to_serializable(indices))
+
 @app.route("/api/trajectory/residue_meta")
 def api_residue_meta():
     """
