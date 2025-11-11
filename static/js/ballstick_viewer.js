@@ -1315,6 +1315,7 @@
   window.clearMeasurements = clearMeasurements;
   window.toggleAngleMeasurementMode = toggleAngleMeasurementMode;
   window.toggleAngleMode = toggleAngleMode;
+  window.getAngleMode = () => angleMode3Point; // Export angle mode getter
   window.toggleFPSDisplay = toggleFPSDisplay;
   window.exportScreenshot = exportScreenshot;
   window.exportSVG = exportSVG;

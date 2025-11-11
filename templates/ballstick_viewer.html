@@ -432,13 +432,15 @@
     // Angle mode switchers
     document.getElementById('btnAngleMode3Point').addEventListener('click', () => {
       const is3Point = true;
-      if (window.angleMode3Point !== is3Point) window.toggleAngleMode();
+      const currentMode = window.getAngleMode();
+      if (currentMode !== is3Point) window.toggleAngleMode();
       document.getElementById('angleModeStatus').textContent = 'Mode: 3-Point';
     });
 
     document.getElementById('btnAngleMode4Point').addEventListener('click', () => {
       const is3Point = false;
-      if (window.angleMode3Point !== is3Point) window.toggleAngleMode();
+      const currentMode = window.getAngleMode();
+      if (currentMode !== is3Point) window.toggleAngleMode();
       document.getElementById('angleModeStatus').textContent = 'Mode: 4-Point Dihedral';
     });
 
