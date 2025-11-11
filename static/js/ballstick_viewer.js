@@ -61,8 +61,8 @@
     scene.add(helper);
     clipPlaneHelpers.push(helper);
     
-    // Update renderer clipping planes
-    renderer.clippingPlanes = clipPlanes;
+    // Update renderer clipping planes only if clipping is enabled
+    renderer.clippingPlanes = enableClipping ? clipPlanes : [];
     renderer.localClippingEnabled = enableClipping;
     
     return clipPlanes.length - 1;
@@ -71,6 +71,7 @@
   function toggleClipping() {
     enableClipping = !enableClipping;
     renderer.localClippingEnabled = enableClipping;
+    renderer.clippingPlanes = enableClipping ? clipPlanes : [];
     
     clipPlaneHelpers.forEach(helper => {
       helper.visible = enableClipping && showPlaneHelpers;
@@ -120,7 +121,7 @@
     scene.remove(helper);
     clipPlaneHelpers.splice(index, 1);
     
-    renderer.clippingPlanes = clipPlanes;
+    renderer.clippingPlanes = enableClipping ? clipPlanes : [];
   }
 
   function addClipPlane() {
