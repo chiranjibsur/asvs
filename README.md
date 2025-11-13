@@ -98,6 +98,14 @@ Molecular Visualizer is an interactive web-based platform for visualizing protei
 - Animation capabilities for dynamics visualization
 - Export options for images and 3D models
 
+## Documentation
+
+For detailed information about the scientific concepts, machine learning methods, and implementation:
+- **[SCIENTIFIC_DOCUMENTATION.md](SCIENTIFIC_DOCUMENTATION.md)**: Comprehensive guide covering MD simulations, tICA, VAMPnet, hotspot detection, and visualization
+- **[API_DOCUMENTATION.md](API_DOCUMENTATION.md)**: Complete API reference for all endpoints
+- **[ARCHITECTURE.md](ARCHITECTURE.md)**: System architecture and component overview
+- **[CURRENT_FEATURES.md](CURRENT_FEATURES.md)**: Detailed feature list and usage guide
+
 ## License
 
 Open source for educational and research purposes.
