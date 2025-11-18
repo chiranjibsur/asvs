@@ -103,7 +103,6 @@
   let tube;
   let caPositions = []; // Store CA positions for interaction
   let currentHotspots = {}; // Store current hotspot data
-  let useEnhancedRibbon = true; // Toggle for enhanced ribbon
   
   async function loadRibbon (frame) {
     status.textContent = `loading ribbon frame ${frame}…`;
@@ -111,17 +110,6 @@
     // 1) ordered Cα coordinates
     const ca = (await (await fetch(`/api/trajectory/ca/${frame}`)).json()).ca; // [[x,y,z], ...]
     caPositions = ca; // Store for click detection
-    
-    // 2) fetch secondary structure
-    let ssData = null;
-    try {
-      const ssResponse = await fetch(`/api/trajectory/secondary_structure/${frame}`);
-      if (ssResponse.ok) {
-        ssData = await ssResponse.json();
-      }
-    } catch (e) {
-      console.warn('Could not fetch secondary structure data:', e);
-    }
     
     // 2) per-residue hotspot scores or RMSF
     let scoreData = {};
