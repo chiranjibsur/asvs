@@ -225,6 +225,59 @@ def api_contacts():
     
     return jsonify(data)
 
+@app.route("/api/metrics/anomaly/<int:frame>")
+def api_metrics_anomaly(frame: int):
+    """
+    Returns per-residue dynamic anomaly scores for a specific frame.
+    Data comes from external ML pipeline (ensemble-anomaly-maps).
+    {
+      "0": 0.12, "1": 0.34, ..., "373": 0.91
+    }
+    """
+    anomaly_path = os.environ.get(
+        "ASVS_ANOMALY",
+        os.path.join("viewer", "anomaly_residue.json")
+    )
+    
+    if not os.path.isfile(anomaly_path):
+        return jsonify({"error": "Anomaly data not found"}), 404
+    
+    try:
+        with open(anomaly_path, "r") as f:
+            blob = json.load(f)
+        
+        # Get data for specific frame
+        data = blob.get(str(frame))
+        if data is None:
+            return jsonify({"error": f"frame {frame} not found in anomaly data"}), 404
+        
+        # Normalize to floats
+        data = {str(k): float(v) for k, v in data.items() if k != "description"}
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/metrics/tica_importance")
+def api_metrics_tica_importance():
+    """
+    Returns per-residue tICA importance scores.
+    Shows contribution to slow collective motions.
+    """
+    tica_path = os.environ.get(
+        "ASVS_TICA",
+        os.path.join("viewer", "tica_importance.json")
+    )
+    
+    if not os.path.isfile(tica_path):
+        return jsonify({"error": "tICA importance data not found"}), 404
+    
+    try:
+        with open(tica_path, "r") as f:
+            data = json.load(f)
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route("/viewer/ballstick")
 def viewer_ballstick():
     return render_template("ballstick_viewer.html")

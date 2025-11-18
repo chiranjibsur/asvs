@@ -1,4 +1,4 @@
-/* simple_visualizer.js — per-residue dynamic coloring with points geometry */
+/* simple_visualizer.js — per-residue dynamic coloring with points geometry + metric switching */
 (async function () {
   const canvas = document.getElementById("viewerCanvas");
   const statusEl = document.getElementById("status");
@@ -9,6 +9,63 @@
   const btnPlay = document.getElementById("btnPlay");
   const btnPause = document.getElementById("btnPause");
   const tooltip = document.getElementById("tooltip");
+  const metricSelect = document.getElementById("metricSelect");
+  const metricInfo = document.getElementById("metricInfo");
+  const legendTitle = document.getElementById("legendTitle");
+  const legendDesc = document.getElementById("legendDesc");
+  const heatmapCanvas = document.getElementById("heatmapCanvas");
+
+  // Metric configuration
+  const METRIC_CONFIG = {
+    hotspot: {
+      title: "Dynamic Hotspot",
+      description: "Visualize dynamic regions of interest",
+      legendDesc: "High values indicate regions of interest",
+      fetchData: (frame) => getJSON(`/api/hotspots/${frame}`),
+      fetchStaticData: null,
+      isFrameDependent: true
+    },
+    anomaly: {
+      title: "Dynamic Anomaly",
+      description: "Unusual motion indicative of functional transitions",
+      legendDesc: "High values indicate anomalous conformations",
+      fetchData: (frame) => getJSON(`/api/metrics/anomaly/${frame}`),
+      fetchStaticData: null,
+      isFrameDependent: true
+    },
+    rmsf: {
+      title: "RMSF (Flexibility)",
+      description: "Root Mean Square Fluctuation - inherent flexibility",
+      legendDesc: "High values indicate flexible regions",
+      fetchData: null,
+      fetchStaticData: () => getJSON('/api/rmsf'),
+      isFrameDependent: false
+    },
+    tica: {
+      title: "tICA Importance",
+      description: "Contribution to slow collective motions",
+      legendDesc: "High values indicate importance in collective dynamics",
+      fetchData: null,
+      fetchStaticData: () => getJSON('/api/metrics/tica_importance'),
+      isFrameDependent: false
+    }
+  };
+
+  let currentMetric = 'hotspot';
+  let metricsCache = {
+    hotspot: {},
+    anomaly: {},
+    rmsf: null,
+    tica: null
+  };
+
+  let currentMetric = 'hotspot';
+  let metricsCache = {
+    hotspot: {},
+    anomaly: {},
+    rmsf: null,
+    tica: null
+  };
 
   const toHex = (n) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, "0");
 
@@ -72,7 +129,6 @@
   let points = null;      // THREE.Points
   let geometry = null;    // THREE.BufferGeometry
   let colorAttr = null;   // Float32Array attribute (per-vertex RGB)
-  let currentHotspots = {}; // Store current hotspot data for selection
 
   // ---- Raycaster for atom/residue selection ----
   const raycaster = new THREE.Raycaster();
@@ -106,38 +162,21 @@
   // Load RMSF on startup
   rmsfData = await fetchRMSF();
 
-  function toggleRMSFColoring() {
-    showRMSF = !showRMSF;
-    const currentFrame = parseInt(slider.value, 10);
-    loadFrame(currentFrame);
-  }
-
   // --- fetching helpers -----------------------------------------------------
   async function fetchFrameXYZ(frame) {
     const j = await getJSON(`/api/trajectory/frame/${frame}`);
     return j.xyz; // [[x,y,z]...]
-  }
-  async function fetchHotspots(frame) {
-    return getJSON(`/api/hotspots/${frame}`); // { "1":score, ... }
   }
 
   // --- build / update points ------------------------------------------------
   async function loadFrame(frame) {
     statusEl.textContent = `loading frame ${frame}…`;
 
-    let xyz, scoreData;
-    if (showRMSF && rmsfData) {
-      // Use RMSF coloring
-      xyz = await fetchFrameXYZ(frame);
-      scoreData = rmsfData.normalized;
-    } else {
-      // Use hotspot coloring
-      [xyz, scoreData] = await Promise.all([
-        fetchFrameXYZ(frame),
-        fetchHotspots(frame)
-      ]);
-      currentHotspots = scoreData; // Store for selection
-    }
+    // Fetch coordinates
+    const xyz = await fetchFrameXYZ(frame);
+    
+    // Fetch metric data
+    const scoreData = await fetchMetricData(currentMetric, frame);
 
     const nAtoms = xyz.length;
 
@@ -162,13 +201,13 @@
       const [x, y, z] = xyz[i];
       const resnum = String(residueMap[i]); // PDB residue number as string
       
+      // Get score for this residue
       let s;
-      if (showRMSF && rmsfData) {
-        // For RMSF, find residue index (0-based) from resnum
-        const residueIdx = residueMeta.findIndex(r => r.resnum === parseInt(resnum));
+      const residueIdx = residueMeta.findIndex(r => r.resnum === parseInt(resnum));
+      if (residueIdx >= 0) {
         s = scoreData[String(residueIdx)] || 0.0;
       } else {
-        s = scoreData[resnum] !== undefined ? scoreData[resnum] : 0.0;
+        s = scoreData[resnum] || 0.0;
       }
       
       const { r, g, b } = colorFromScore01(s);
@@ -183,6 +222,9 @@
     geometry.computeBoundingSphere();
 
     statusEl.textContent = `frame ${frame} loaded`;
+    
+    // Update heatmap marker
+    await updateTimelineHeatmap();
   }
 
   // ---- Atom/Residue selection functions ----
@@ -236,21 +278,18 @@
       const p = atomIndex * 3;
       const coords = [posArr[p], posArr[p + 1], posArr[p + 2]];
       
-      // Get hotspot score
-      const hotspotValue = currentHotspots[resnumStr] || 0;
+      // Get all metric values
+      const hotspotData = await fetchMetricData('hotspot', currentFrame);
+      const anomalyData = await fetchMetricData('anomaly', currentFrame);
+      const rmsfData = await fetchMetricData('rmsf', 0);
+      const ticaData = await fetchMetricData('tica', 0);
       
-      // Get RMSF value
-      let rmsfHTML = '';
-      if (rmsfData && rmsfData.normalized && residue) {
-        const residueIdx = residue.index;
-        const rmsfValue = rmsfData.normalized[String(residueIdx)] || 0;
-        const actualRMSF = rmsfData.min + (rmsfValue * (rmsfData.max - rmsfData.min));
-        rmsfHTML = `
-          <div class="info-section">
-            <strong>RMSF (Flexibility):</strong> ${actualRMSF.toFixed(2)} Å
-          </div>
-        `;
-      }
+      const residueIdx = residue ? String(residue.index) : String(resnum);
+      
+      const hotspotValue = hotspotData[resnumStr] || hotspotData[residueIdx] || 0;
+      const anomalyValue = anomalyData[resnumStr] || anomalyData[residueIdx] || 0;
+      const rmsfValue = rmsfData[residueIdx] || 0;
+      const ticaValue = ticaData[residueIdx] || 0;
       
       // Build info HTML
       let residueInfo = '';
@@ -262,7 +301,7 @@
       
       const infoHTML = `
         <div class="atom-info-panel">
-          <h3>Atom Information</h3>
+          <h3>Residue Metrics</h3>
           <div class="info-section">
             <strong>Atom Index:</strong> ${atomIndex}
           </div>
@@ -275,10 +314,22 @@
             Y: ${coords[1].toFixed(2)} Å<br>
             Z: ${coords[2].toFixed(2)} Å
           </div>
-          <div class="info-section">
-            <strong>Hotspot Score:</strong> ${hotspotValue.toFixed(3)}
+          <div class="info-section" style="border-top: 1px solid #2b2f3a; padding-top: 10px; margin-top: 10px;">
+            <strong>Dynamic Hotspot:</strong> ${hotspotValue.toFixed(3)}<br>
+            <span style="font-size: 11px; color: #9aa3b2;">Regions of interest</span>
           </div>
-          ${rmsfHTML}
+          <div class="info-section">
+            <strong>Dynamic Anomaly:</strong> ${anomalyValue.toFixed(3)}<br>
+            <span style="font-size: 11px; color: #9aa3b2;">Unusual conformations</span>
+          </div>
+          <div class="info-section">
+            <strong>RMSF (Flexibility):</strong> ${rmsfValue.toFixed(3)}<br>
+            <span style="font-size: 11px; color: #9aa3b2;">Inherent flexibility</span>
+          </div>
+          <div class="info-section">
+            <strong>tICA Importance:</strong> ${ticaValue.toFixed(3)}<br>
+            <span style="font-size: 11px; color: #9aa3b2;">Collective motion contribution</span>
+          </div>
           <button id="closeInfoBtn" class="close-btn">Close</button>
         </div>
       `;
@@ -324,6 +375,110 @@
   let playing = false;
   let playHandle = null;
 
+  // Update legend based on current metric
+  function updateLegend() {
+    const config = METRIC_CONFIG[currentMetric];
+    legendTitle.textContent = config.title;
+    legendDesc.textContent = config.legendDesc;
+    metricInfo.textContent = config.description;
+  }
+
+  // Fetch metric data for a specific frame
+  async function fetchMetricData(metric, frame) {
+    const config = METRIC_CONFIG[metric];
+    
+    if (!config.isFrameDependent) {
+      // Static data (RMSF, tICA) - load once
+      if (!metricsCache[metric]) {
+        const data = await config.fetchStaticData();
+        metricsCache[metric] = data.normalized;
+      }
+      return metricsCache[metric];
+    } else {
+      // Frame-dependent data (hotspot, anomaly) - cache per frame
+      if (!metricsCache[metric][frame]) {
+        const data = await config.fetchData(frame);
+        metricsCache[metric][frame] = data;
+      }
+      return metricsCache[metric][frame];
+    }
+  }
+
+  // Handle metric selection change
+  metricSelect.addEventListener('change', async () => {
+    currentMetric = metricSelect.value;
+    updateLegend();
+    const currentFrame = parseInt(slider.value, 10);
+    await loadFrame(currentFrame);
+    await updateTimelineHeatmap();
+  });
+
+  // Initialize timeline heatmap
+  async function updateTimelineHeatmap() {
+    const ctx = heatmapCanvas.getContext('2d');
+    const width = heatmapCanvas.width = heatmapCanvas.clientWidth;
+    const height = heatmapCanvas.height = heatmapCanvas.clientHeight;
+    
+    const config = METRIC_CONFIG[currentMetric];
+    
+    if (!config.isFrameDependent) {
+      // For static metrics, show distribution across residues
+      const data = await fetchMetricData(currentMetric, 0);
+      const values = Object.values(data);
+      
+      // Draw simple bar chart
+      const barWidth = width / values.length;
+      values.forEach((val, idx) => {
+        const { r, g, b } = colorFromScore01(val);
+        ctx.fillStyle = `rgb(${r*255}, ${g*255}, ${b*255})`;
+        ctx.fillRect(idx * barWidth, 0, barWidth, height);
+      });
+      
+    } else {
+      // For frame-dependent metrics, show max value per frame
+      const frameScores = [];
+      for (let f = 0; f < meta.n_frames; f++) {
+        try {
+          const data = await fetchMetricData(currentMetric, f);
+          const values = Object.values(data);
+          const maxVal = Math.max(...values);
+          frameScores.push(maxVal);
+        } catch (e) {
+          frameScores.push(0);
+        }
+      }
+      
+      // Draw heatmap
+      const barWidth = width / meta.n_frames;
+      frameScores.forEach((score, idx) => {
+        const { r, g, b } = colorFromScore01(score);
+        ctx.fillStyle = `rgb(${r*255}, ${g*255}, ${b*255})`;
+        ctx.fillRect(idx * barWidth, 0, barWidth, height);
+      });
+    }
+    
+    // Draw current frame indicator
+    const currentFrame = parseInt(slider.value, 10);
+    const markerX = (currentFrame / meta.n_frames) * width;
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(markerX, 0);
+    ctx.lineTo(markerX, height);
+    ctx.stroke();
+  }
+
+  // Handle heatmap clicks
+  heatmapCanvas.addEventListener('click', (e) => {
+    const rect = heatmapCanvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const fraction = x / rect.width;
+    const targetFrame = Math.floor(fraction * meta.n_frames);
+    slider.value = String(targetFrame);
+    frameLabel.textContent = String(targetFrame);
+    loadFrame(targetFrame);
+  });
+
   btnLoad.addEventListener("click", async () => {
     const f = parseInt(slider.value, 10);
     frameLabel.textContent = String(f);
@@ -363,9 +518,8 @@
     if (playHandle) { clearTimeout(playHandle); playHandle = null; }
   });
 
-  // Expose toggleRMSFColoring to global scope for button handler
-  window.toggleRMSFColoring = toggleRMSFColoring;
-
-  // Auto-load frame 0 on init
+  // Initialize legend and load first frame
+  updateLegend();
   await loadFrame(0);
+  await updateTimelineHeatmap();
 })();
