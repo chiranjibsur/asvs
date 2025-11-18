@@ -1,0 +1,164 @@
+#!/usr/bin/env python
+"""
+Test script for ribbon visualization improvements.
+Validates that secondary structure computation and enhanced ribbon geometry work correctly.
+"""
+
+import json
+from app import app
+from trajectory_adapter import get_adapter
+
+def test_secondary_structure_api():
+    """Test that secondary structure API endpoint works correctly."""
+    print("Testing secondary structure API endpoint...")
+    
+    client = app.test_client()
+    response = client.get('/api/trajectory/secondary_structure/0')
+    
+    assert response.status_code == 200, f"Expected 200, got {response.status_code}"
+    
+    data = response.get_json()
+    assert 'frame' in data, "Response missing 'frame' field"
+    assert 'residues' in data, "Response missing 'residues' field"
+    assert data['frame'] == 0, f"Expected frame 0, got {data['frame']}"
+    
+    residues = data['residues']
+    assert len(residues) > 0, "No residues in response"
+    
+    # Validate structure of residue data
+    for r in residues[:5]:  # Check first 5
+        assert 'index' in r, "Residue missing 'index'"
+        assert 'resnum' in r, "Residue missing 'resnum'"
+        assert 'resname' in r, "Residue missing 'resname'"
+        assert 'ss' in r, "Residue missing 'ss'"
+        assert r['ss'] in ['H', 'E', 'C'], f"Invalid SS type: {r['ss']}"
+    
+    print(f"✓ Secondary structure API works correctly ({len(residues)} residues)")
+    return True
+
+def test_backbone_api():
+    """Test that backbone atoms API endpoint works correctly."""
+    print("\nTesting backbone atoms API endpoint...")
+    
+    client = app.test_client()
+    response = client.get('/api/trajectory/backbone/0')
+    
+    assert response.status_code == 200, f"Expected 200, got {response.status_code}"
+    
+    data = response.get_json()
+    assert 'frame' in data, "Response missing 'frame' field"
+    assert 'residues' in data, "Response missing 'residues' field"
+    
+    residues = data['residues']
+    assert len(residues) > 0, "No residues in response"
+    
+    # Validate structure of backbone data
+    for r in residues[:5]:  # Check first 5
+        assert 'index' in r, "Residue missing 'index'"
+        assert 'resnum' in r, "Residue missing 'resnum'"
+        assert 'resname' in r, "Residue missing 'resname'"
+        assert 'N' in r, "Residue missing 'N'"
+        assert 'CA' in r, "Residue missing 'CA'"
+        assert 'C' in r, "Residue missing 'C'"
+    
+    print(f"✓ Backbone atoms API works correctly ({len(residues)} residues)")
+    return True
+
+def test_adapter_secondary_structure():
+    """Test that adapter's secondary structure computation works."""
+    print("\nTesting adapter secondary structure computation...")
+    
+    adapter = get_adapter()
+    ss_data = adapter.get_secondary_structure(0)
+    
+    assert len(ss_data) > 0, "No secondary structure data"
+    
+    # Count SS types
+    ss_counts = {'H': 0, 'E': 0, 'C': 0}
+    for r in ss_data:
+        assert 'ss' in r, "Missing 'ss' field"
+        assert r['ss'] in ss_counts, f"Invalid SS type: {r['ss']}"
+        ss_counts[r['ss']] += 1
+    
+    total = sum(ss_counts.values())
+    print(f"✓ Secondary structure computed for {total} residues")
+    print(f"  Distribution: Helix={ss_counts['H']}, Sheet={ss_counts['E']}, Coil={ss_counts['C']}")
+    
+    return True
+
+def test_frame_consistency():
+    """Test that data is consistent across frames."""
+    print("\nTesting frame consistency...")
+    
+    adapter = get_adapter()
+    meta = adapter.get_meta()
+    n_frames = meta['n_frames']
+    n_residues = meta['n_residues']
+    
+    print(f"  Total frames: {n_frames}")
+    print(f"  Total residues: {n_residues}")
+    
+    # Test a few random frames
+    test_frames = [0, n_frames // 4, n_frames // 2, n_frames - 1]
+    
+    for frame in test_frames:
+        ca_data = adapter.get_ca_xyz(frame)
+        ss_data = adapter.get_secondary_structure(frame)
+        
+        assert len(ca_data) == n_residues, f"Frame {frame}: CA count mismatch"
+        assert len(ss_data) == n_residues, f"Frame {frame}: SS count mismatch"
+    
+    print(f"✓ Data is consistent across frames")
+    return True
+
+def test_spline_js_exists():
+    """Test that spline.js utility file exists and can be accessed."""
+    print("\nTesting spline.js utility...")
+    
+    client = app.test_client()
+    response = client.get('/static/js/utils/spline.js')
+    
+    assert response.status_code == 200, f"Expected 200, got {response.status_code}"
+    
+    content = response.data.decode('utf-8')
+    assert 'computeRotationMinimizingFrames' in content, "Missing RMF function"
+    assert 'createRibbonGeometry' in content, "Missing ribbon geometry function"
+    assert 'SplineUtils' in content, "Missing SplineUtils export"
+    
+    print("✓ Spline utility file is accessible and contains required functions")
+    return True
+
+def main():
+    """Run all tests."""
+    print("=" * 60)
+    print("Testing Ribbon Visualization Improvements")
+    print("=" * 60)
+    
+    tests = [
+        test_secondary_structure_api,
+        test_backbone_api,
+        test_adapter_secondary_structure,
+        test_frame_consistency,
+        test_spline_js_exists,
+    ]
+    
+    passed = 0
+    failed = 0
+    
+    for test in tests:
+        try:
+            if test():
+                passed += 1
+        except Exception as e:
+            print(f"✗ {test.__name__} failed: {e}")
+            failed += 1
+    
+    print("\n" + "=" * 60)
+    print(f"Results: {passed} passed, {failed} failed")
+    print("=" * 60)
+    
+    return failed == 0
+
+if __name__ == '__main__':
+    success = main()
+    exit(0 if success else 1)

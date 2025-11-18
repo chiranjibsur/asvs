@@ -1,10 +1,13 @@
 import os
-from typing import List, Dict, Tuple
+import math
+from typing import List, Dict, Tuple, Optional
 
 try:
     import MDAnalysis as mda
+    import numpy as np
 except Exception as e:
     mda = None
+    np = None
 
 
 # ---------- helper: resolve topology/trajectory paths ----------
@@ -131,6 +134,233 @@ class TrajectoryAdapter:
         except Exception:
             sel = u.select_atoms("backbone and not name H*")
         return sel.positions.astype(float).tolist()
+
+    def get_backbone_atoms(self, frame: int):
+        """
+        Get backbone atoms (N, CA, C) for each residue.
+        Returns a dict with 'residues' list where each residue has:
+        {
+            'index': int,
+            'resnum': int,
+            'resname': str,
+            'N': [x, y, z] or None,
+            'CA': [x, y, z] or None,
+            'C': [x, y, z] or None
+        }
+        """
+        u = self.universe
+        frame = max(0, min(frame, len(u.trajectory) - 1))
+        u.trajectory[frame]
+        
+        result = []
+        for idx, residue in enumerate(u.residues):
+            resnum = int(getattr(residue, "resnum", idx + 1))
+            resname = str(getattr(residue, "resname", "UNK"))
+            
+            backbone = {
+                'index': idx,
+                'resnum': resnum,
+                'resname': resname,
+                'N': None,
+                'CA': None,
+                'C': None
+            }
+            
+            # Try to find backbone atoms
+            for atom in residue.atoms:
+                atom_name = atom.name.strip().upper()
+                pos = atom.position.astype(float).tolist()
+                
+                if atom_name == 'N':
+                    backbone['N'] = pos
+                elif atom_name == 'CA':
+                    backbone['CA'] = pos
+                elif atom_name == 'C':
+                    backbone['C'] = pos
+            
+            result.append(backbone)
+        
+        return result
+
+    def _compute_dihedral(self, p1, p2, p3, p4):
+        """
+        Compute dihedral angle between four points.
+        Returns angle in degrees, or None if calculation fails.
+        Based on standard dihedral angle formula.
+        """
+        if np is None:
+            return None
+        
+        try:
+            # Convert to numpy arrays
+            p1 = np.array(p1, dtype=float)
+            p2 = np.array(p2, dtype=float)
+            p3 = np.array(p3, dtype=float)
+            p4 = np.array(p4, dtype=float)
+            
+            # Calculate vectors
+            b1 = p2 - p1
+            b2 = p3 - p2
+            b3 = p4 - p3
+            
+            # Normalize b2
+            b2_norm = b2 / np.linalg.norm(b2)
+            
+            # Calculate perpendicular components
+            v1 = b1 - np.dot(b1, b2_norm) * b2_norm
+            v2 = b3 - np.dot(b3, b2_norm) * b2_norm
+            
+            # Calculate angle
+            x = np.dot(v1, v2)
+            y = np.dot(np.cross(b2_norm, v1), v2)
+            
+            angle = np.degrees(np.arctan2(y, x))
+            return float(angle)
+        except Exception:
+            return None
+
+    def _assign_secondary_structure_from_ca(self, ca_positions, window_size=5):
+        """
+        Assign secondary structure based on CA trace geometry.
+        Uses local curvature and distance patterns to infer helix/sheet/coil.
+        
+        Parameters:
+        - ca_positions: List of [x,y,z] CA coordinates
+        - window_size: Number of residues to consider for local geometry
+        
+        Returns: List of 'H', 'E', or 'C' for each residue
+        
+        Method:
+        - Helices: relatively constant CA-CA distance, smooth moderate curvature
+        - Sheets: relatively straight, low curvature
+        - Coils: irregular distances and high curvature
+        
+        Reference: Sklenar et al. (1989), Fodje & Al-Karadaghi (2002)
+        """
+        if np is None or len(ca_positions) < 3:
+            return ['C'] * len(ca_positions)
+        
+        n = len(ca_positions)
+        ss_types = ['C'] * n
+        
+        # Convert to numpy array
+        coords = np.array(ca_positions, dtype=float)
+        
+        # Calculate CA-CA distances
+        distances = []
+        for i in range(n - 1):
+            dist = np.linalg.norm(coords[i+1] - coords[i])
+            distances.append(dist)
+        distances.append(distances[-1] if distances else 0)  # pad last
+        
+        # Calculate local curvature (angle between consecutive CA-CA vectors)
+        curvatures = []
+        for i in range(1, n - 1):
+            v1 = coords[i] - coords[i-1]
+            v2 = coords[i+1] - coords[i]
+            
+            # Normalize
+            v1_norm = v1 / (np.linalg.norm(v1) + 1e-8)
+            v2_norm = v2 / (np.linalg.norm(v2) + 1e-8)
+            
+            # Angle
+            cos_angle = np.clip(np.dot(v1_norm, v2_norm), -1.0, 1.0)
+            angle = np.degrees(np.arccos(cos_angle))
+            curvatures.append(angle)
+        
+        # Pad curvatures
+        curvatures = [curvatures[0] if curvatures else 0] + curvatures + [curvatures[-1] if curvatures else 0]
+        
+        # Assign secondary structure based on patterns
+        # Adjusted thresholds for CA-only models
+        for i in range(n):
+            # Get local window
+            start = max(0, i - window_size // 2)
+            end = min(n, i + window_size // 2 + 1)
+            
+            local_dists = distances[start:end]
+            local_curvs = curvatures[start:end]
+            
+            if len(local_dists) < 2:
+                continue
+            
+            avg_dist = np.mean(local_dists)
+            std_dist = np.std(local_dists)
+            avg_curv = np.mean(local_curvs)
+            
+            # For this dataset with smaller CA-CA distances (1.5-3.5 Å):
+            # Helix detection: moderate distances with regular spacing and moderate curvature
+            # Looking for regular patterns with consistent distance and smooth turns
+            if 1.8 <= avg_dist <= 2.8 and std_dist < 0.5 and 30 < avg_curv < 90:
+                ss_types[i] = 'H'
+            
+            # Sheet detection: extended regions with low curvature
+            # Lower curvature = more extended/straight
+            elif avg_curv < 40 and std_dist < 0.6:
+                ss_types[i] = 'E'
+            
+            # Default is coil (already set)
+        
+        # Post-processing: smooth isolated assignments
+        # Short single residues of H or E are likely noise
+        for i in range(1, n - 1):
+            if ss_types[i] != ss_types[i-1] and ss_types[i] != ss_types[i+1]:
+                # Isolated residue - convert to majority neighbor
+                ss_types[i] = ss_types[i-1] if ss_types[i-1] == ss_types[i+1] else 'C'
+        
+        # Extend helices and sheets to meet minimum length requirements
+        # Helices should be at least 4 residues, sheets at least 3
+        current_type = 'C'
+        current_start = 0
+        
+        for i in range(n + 1):
+            if i == n or ss_types[i] != current_type:
+                length = i - current_start
+                
+                # If segment is too short, convert to coil
+                if current_type == 'H' and length < 4:
+                    for j in range(current_start, i):
+                        ss_types[j] = 'C'
+                elif current_type == 'E' and length < 3:
+                    for j in range(current_start, i):
+                        ss_types[j] = 'C'
+                
+                if i < n:
+                    current_type = ss_types[i]
+                    current_start = i
+        
+        return ss_types
+
+    def get_secondary_structure(self, frame: int):
+        """
+        Compute secondary structure for each residue based on CA trace geometry.
+        
+        Returns a list of dicts:
+        [{
+            'index': int,
+            'resnum': int,
+            'resname': str,
+            'ss': 'H' | 'E' | 'C'  (helix, sheet, coil)
+        }, ...]
+        """
+        # Get CA positions
+        ca_positions = self.get_ca_xyz(frame)
+        
+        # Assign secondary structure from CA geometry
+        ss_types = self._assign_secondary_structure_from_ca(ca_positions)
+        
+        # Build result with residue metadata
+        result = []
+        for i, residue in enumerate(self._res_table):
+            if i < len(ss_types):
+                result.append({
+                    'index': residue['index'],
+                    'resnum': residue['resnum'],
+                    'resname': residue['resname'],
+                    'ss': ss_types[i]
+                })
+        
+        return result
 
 
 # ---------- singleton ----------

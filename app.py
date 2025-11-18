@@ -152,6 +152,43 @@ def api_ca_frame(frame: int):
     ca = adapter.get_ca_xyz(frame)
     return jsonify({"frame": frame, "ca": ca})
 
+@app.route("/api/trajectory/backbone/<int:frame>")
+def api_backbone_frame(frame: int):
+    """
+    Returns backbone atoms (N, CA, C) for each residue in a frame.
+    {
+        frame: n,
+        residues: [{
+            index: int,
+            resnum: int,
+            resname: str,
+            N: [x,y,z] or null,
+            CA: [x,y,z] or null,
+            C: [x,y,z] or null
+        }, ...]
+    }
+    """
+    backbone = adapter.get_backbone_atoms(frame)
+    return jsonify({"frame": frame, "residues": _to_serializable(backbone)})
+
+@app.route("/api/trajectory/secondary_structure/<int:frame>")
+def api_secondary_structure_frame(frame: int):
+    """
+    Returns secondary structure assignment for each residue in a frame.
+    Based on CA trace geometry (distance and curvature patterns).
+    {
+        frame: n,
+        residues: [{
+            index: int,
+            resnum: int,
+            resname: str,
+            ss: 'H' | 'E' | 'C'  (helix, sheet, coil)
+        }, ...]
+    }
+    """
+    ss_data = adapter.get_secondary_structure(frame)
+    return jsonify({"frame": frame, "residues": _to_serializable(ss_data)})
+
 @app.route("/api/rmsf")
 def api_rmsf():
     """
