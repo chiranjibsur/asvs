@@ -45,6 +45,40 @@
   const MAX_UI_PLANES = 3;
   const PERFORMANCE_FPS_WARNING = 30;
 
+  // ---- Phase 4: FPS Monitoring ----
+  let showFPS = false;
+  let fpsFrameCount = 0;
+  let fpsLastTime = performance.now();
+  let currentFPS = 0;
+  let fpsUpdateInterval = 500; // Update FPS display every 500ms
+
+  function toggleFPSDisplay() {
+    showFPS = !showFPS;
+    const fpsDisplay = document.getElementById('fpsDisplay');
+    if (fpsDisplay) {
+      fpsDisplay.style.display = showFPS ? 'block' : 'none';
+    }
+    return showFPS;
+  }
+
+  function updateFPS() {
+    fpsFrameCount++;
+    const currentTime = performance.now();
+    const elapsed = currentTime - fpsLastTime;
+    
+    if (elapsed >= fpsUpdateInterval) {
+      currentFPS = Math.round((fpsFrameCount * 1000) / elapsed);
+      fpsFrameCount = 0;
+      fpsLastTime = currentTime;
+      
+      const fpsDisplay = document.getElementById('fpsDisplay');
+      if (fpsDisplay && showFPS) {
+        const color = currentFPS < PERFORMANCE_FPS_WARNING ? '#ff6b6b' : '#51cf66';
+        fpsDisplay.innerHTML = `FPS: <span style="color: ${color};">${currentFPS}</span>`;
+      }
+    }
+  }
+
   // ---- Clip Plane Implementation ----
   let clipPlanes = [];
   let clipPlaneHelpers = [];
@@ -441,6 +475,12 @@
   let measurements = []; // Store measurement data
   let persistMeasurements = false;
 
+  // ---- Phase 4: Angle Measurement Tool ----
+  let angleMeasurementMode = false;
+  let angleMode3Point = true; // true = 3-point angle, false = 4-point dihedral
+  let anglePoints = [];
+  let angleArcs = []; // Visual arc representations
+
   function toggleMeasurementMode() {
     measurementMode = !measurementMode;
     
@@ -513,6 +553,7 @@
 
   function clearMeasurements() {
     measurementPoints = [];
+    anglePoints = [];
     
     measurementLines.forEach(line => {
       scene.remove(line);
@@ -527,6 +568,14 @@
       marker.material.dispose();
     });
     measurementMarkers = [];
+    
+    // Clear angle arcs
+    angleArcs.forEach(arc => {
+      scene.remove(arc);
+      arc.geometry.dispose();
+      arc.material.dispose();
+    });
+    angleArcs = [];
     
     measurements = [];
     
@@ -545,16 +594,222 @@
     
     let html = '';
     for (const m of measurements) {
-      html += `
-        <div class="measurement-item">
-          <strong>Distance:</strong> ${m.distance.toFixed(2)} ${m.unit}<br>
-          <span style="opacity:0.7;">Atom ${m.atom1} ↔ Atom ${m.atom2}</span>
-          ${persistMeasurements ? `<br><span style="opacity:0.5;font-size:11px;">Frame ${m.frame}</span>` : ''}
-        </div>
-      `;
+      if (m.type === 'angle') {
+        html += `
+          <div class="measurement-item">
+            <strong>Angle:</strong> ${m.angle.toFixed(2)}${m.unit}<br>
+            <span style="opacity:0.7;">Atom ${m.atom1} - ${m.atom2} - ${m.atom3}</span>
+            ${persistMeasurements ? `<br><span style="opacity:0.5;font-size:11px;">Frame ${m.frame}</span>` : ''}
+          </div>
+        `;
+      } else if (m.type === 'dihedral') {
+        html += `
+          <div class="measurement-item">
+            <strong>Dihedral:</strong> ${m.angle.toFixed(2)}${m.unit}<br>
+            <span style="opacity:0.7;">Atom ${m.atom1} - ${m.atom2} - ${m.atom3} - ${m.atom4}</span>
+            ${persistMeasurements ? `<br><span style="opacity:0.5;font-size:11px;">Frame ${m.frame}</span>` : ''}
+          </div>
+        `;
+      } else {
+        // Distance measurement
+        html += `
+          <div class="measurement-item">
+            <strong>Distance:</strong> ${m.distance.toFixed(2)} ${m.unit}<br>
+            <span style="opacity:0.7;">Atom ${m.atom1} ↔ Atom ${m.atom2}</span>
+            ${persistMeasurements ? `<br><span style="opacity:0.5;font-size:11px;">Frame ${m.frame}</span>` : ''}
+          </div>
+        `;
+      }
     }
     
     listElement.innerHTML = html;
+  }
+
+  // ---- Phase 4: Angle Measurement Functions ----
+  function toggleAngleMeasurementMode() {
+    angleMeasurementMode = !angleMeasurementMode;
+    
+    // Disable distance measurement mode when angle mode is enabled
+    if (angleMeasurementMode) {
+      measurementMode = false;
+    }
+    
+    // Update cursor style
+    canvas.style.cursor = angleMeasurementMode ? 'crosshair' : 'default';
+    
+    return angleMeasurementMode;
+  }
+
+  function toggleAngleMode() {
+    angleMode3Point = !angleMode3Point;
+    anglePoints = []; // Reset points when changing mode
+    return angleMode3Point;
+  }
+
+  function addAnglePoint(position, atomIndex) {
+    anglePoints.push({ position: position.clone(), atomIndex });
+    
+    // Create sphere marker (green for angles)
+    const geometry = new THREE.SphereGeometry(0.5, 16, 16);
+    const material = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+    const marker = new THREE.Mesh(geometry, material);
+    marker.position.copy(position);
+    scene.add(marker);
+    measurementMarkers.push(marker);
+    
+    // Check if we have enough points
+    const requiredPoints = angleMode3Point ? 3 : 4;
+    if (anglePoints.length === requiredPoints) {
+      if (angleMode3Point) {
+        create3PointAngleMeasurement();
+      } else {
+        create4PointDihedralMeasurement();
+      }
+      anglePoints = []; // Reset for next measurement
+    }
+  }
+
+  function create3PointAngleMeasurement() {
+    const p1 = anglePoints[0].position;
+    const p2 = anglePoints[1].position; // Vertex
+    const p3 = anglePoints[2].position;
+    
+    const atom1 = anglePoints[0].atomIndex;
+    const atom2 = anglePoints[1].atomIndex; // Vertex
+    const atom3 = anglePoints[2].atomIndex;
+    
+    // Calculate angle using vectors
+    const v1 = new THREE.Vector3().subVectors(p1, p2);
+    const v2 = new THREE.Vector3().subVectors(p3, p2);
+    const angle = v1.angleTo(v2) * (180 / Math.PI); // Convert to degrees
+    
+    // Create visual arc
+    createAngleArc(p1, p2, p3, angle);
+    
+    // Create connecting lines from vertex to endpoints
+    const points1 = [p2, p1];
+    const points2 = [p2, p3];
+    const geometry1 = new THREE.BufferGeometry().setFromPoints(points1);
+    const geometry2 = new THREE.BufferGeometry().setFromPoints(points2);
+    const material = new THREE.LineBasicMaterial({ color: 0x00ff00, linewidth: 2 });
+    
+    const line1 = new THREE.Line(geometry1, material);
+    const line2 = new THREE.Line(geometry2, material);
+    scene.add(line1);
+    scene.add(line2);
+    measurementLines.push(line1, line2);
+    
+    // Store measurement info
+    const currentFrame = parseInt(slider.value, 10);
+    const measurement = {
+      id: measurements.length + 1,
+      type: 'angle',
+      atom1,
+      atom2, // Vertex
+      atom3,
+      angle,
+      frame: currentFrame,
+      unit: '°'
+    };
+    measurements.push(measurement);
+    
+    console.log(`Angle: ${angle.toFixed(2)}° (Atom ${atom1} - Atom ${atom2} - Atom ${atom3})`);
+    
+    // Update UI
+    updateMeasurementsList();
+  }
+
+  function create4PointDihedralMeasurement() {
+    const p1 = anglePoints[0].position;
+    const p2 = anglePoints[1].position;
+    const p3 = anglePoints[2].position;
+    const p4 = anglePoints[3].position;
+    
+    const atom1 = anglePoints[0].atomIndex;
+    const atom2 = anglePoints[1].atomIndex;
+    const atom3 = anglePoints[2].atomIndex;
+    const atom4 = anglePoints[3].atomIndex;
+    
+    // Calculate dihedral angle
+    const b1 = new THREE.Vector3().subVectors(p2, p1);
+    const b2 = new THREE.Vector3().subVectors(p3, p2);
+    const b3 = new THREE.Vector3().subVectors(p4, p3);
+    
+    const n1 = new THREE.Vector3().crossVectors(b1, b2).normalize();
+    const n2 = new THREE.Vector3().crossVectors(b2, b3).normalize();
+    
+    const m1 = new THREE.Vector3().crossVectors(n1, b2.normalize());
+    
+    const x = n1.dot(n2);
+    const y = m1.dot(n2);
+    
+    const dihedral = Math.atan2(y, x) * (180 / Math.PI); // Signed angle in degrees
+    
+    // Create connecting lines
+    const points = [p1, p2, p3, p4];
+    const geometry = new THREE.BufferGeometry().setFromPoints(points);
+    const material = new THREE.LineBasicMaterial({ color: 0x00ff00, linewidth: 2 });
+    const line = new THREE.Line(geometry, material);
+    scene.add(line);
+    measurementLines.push(line);
+    
+    // Store measurement info
+    const currentFrame = parseInt(slider.value, 10);
+    const measurement = {
+      id: measurements.length + 1,
+      type: 'dihedral',
+      atom1,
+      atom2,
+      atom3,
+      atom4,
+      angle: dihedral,
+      frame: currentFrame,
+      unit: '°'
+    };
+    measurements.push(measurement);
+    
+    console.log(`Dihedral: ${dihedral.toFixed(2)}° (Atom ${atom1} - ${atom2} - ${atom3} - ${atom4})`);
+    
+    // Update UI
+    updateMeasurementsList();
+  }
+
+  function createAngleArc(p1, vertex, p3, angleDegrees) {
+    // Create an arc to visualize the angle
+    const v1 = new THREE.Vector3().subVectors(p1, vertex).normalize();
+    const v2 = new THREE.Vector3().subVectors(p3, vertex).normalize();
+    
+    // Create arc curve
+    const arcRadius = 3.0;
+    const segments = 32;
+    const points = [];
+    
+    for (let i = 0; i <= segments; i++) {
+      const t = i / segments;
+      const angle = t * angleDegrees * (Math.PI / 180);
+      
+      // Rotate v1 towards v2
+      const rotationAxis = new THREE.Vector3().crossVectors(v1, v2).normalize();
+      const point = v1.clone().applyAxisAngle(rotationAxis, angle).multiplyScalar(arcRadius).add(vertex);
+      points.push(point);
+    }
+    
+    const geometry = new THREE.BufferGeometry().setFromPoints(points);
+    const material = new THREE.LineBasicMaterial({ color: 0x00ff00, linewidth: 2 });
+    const arc = new THREE.Line(geometry, material);
+    scene.add(arc);
+    angleArcs.push(arc);
+  }
+
+  function clearAngleMeasurements() {
+    anglePoints = [];
+    
+    angleArcs.forEach(arc => {
+      scene.remove(arc);
+      arc.geometry.dispose();
+      arc.material.dispose();
+    });
+    angleArcs = [];
   }
 
   // ---- Export Functionality ----
@@ -572,6 +827,74 @@
     link.download = `molecular-view-frame${currentFrame}-${timestamp}.${format}`;
     link.href = dataURL;
     link.click();
+  }
+
+  // Phase 4: SVG Export
+  function exportSVG() {
+    try {
+      // Create SVG string manually by converting scene geometry
+      const svgWidth = canvas.clientWidth;
+      const svgHeight = canvas.clientHeight;
+      
+      let svgContent = `<?xml version="1.0" encoding="UTF-8"?>
+<svg width="${svgWidth}" height="${svgHeight}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${svgWidth} ${svgHeight}">
+  <rect width="100%" height="100%" fill="#0b0c0f"/>
+  <g id="molecules">
+`;
+      
+      // Project 3D points to 2D screen space
+      const projectedAtoms = [];
+      for (let i = 0; i < atomMeshes.length; i++) {
+        const mesh = atomMeshes[i];
+        const pos = mesh.position.clone();
+        pos.project(camera);
+        
+        // Convert to screen coordinates
+        const x = (pos.x + 1) * svgWidth / 2;
+        const y = (-pos.y + 1) * svgHeight / 2;
+        const z = pos.z;
+        
+        // Get color
+        const color = '#' + mesh.material.color.getHexString();
+        
+        // Get radius (approximate from scale)
+        const radius = mesh.scale.x * 2; // Approximate pixel radius
+        
+        projectedAtoms.push({ x, y, z, color, radius, visible: z < 1 });
+      }
+      
+      // Sort by depth (back to front)
+      projectedAtoms.sort((a, b) => b.z - a.z);
+      
+      // Draw atoms
+      for (const atom of projectedAtoms) {
+        if (atom.visible) {
+          svgContent += `    <circle cx="${atom.x.toFixed(2)}" cy="${atom.y.toFixed(2)}" r="${atom.radius.toFixed(2)}" fill="${atom.color}" opacity="0.9"/>\n`;
+        }
+      }
+      
+      svgContent += `  </g>
+</svg>`;
+      
+      // Create download
+      const blob = new Blob([svgContent], { type: 'image/svg+xml' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const currentFrame = parseInt(slider.value, 10);
+      link.download = `molecular-view-frame${currentFrame}-${timestamp}.svg`;
+      link.href = url;
+      link.click();
+      URL.revokeObjectURL(url);
+      
+      console.log('SVG exported successfully');
+    } catch (error) {
+      console.error('Error exporting SVG:', error);
+      if (status) {
+        status.textContent = '❌ SVG export failed';
+        setTimeout(() => { status.textContent = ''; }, 3000);
+      }
+    }
   }
 
   function exportMeasurements() {
@@ -723,13 +1046,16 @@
         if (measurementMode) {
           const position = clickedObject.position.clone();
           addMeasurementPoint(position, atomIndex);
+        } else if (angleMeasurementMode) {
+          const position = clickedObject.position.clone();
+          addAnglePoint(position, atomIndex);
         } else {
           selectAtom(atomIndex);
         }
       }
     } else {
       // Clicked on empty space - deselect (only if not in measurement mode)
-      if (!measurementMode) {
+      if (!measurementMode && !angleMeasurementMode) {
         deselectAtom();
       }
     }
@@ -987,13 +1313,19 @@
   window.toggleMeasurementMode = toggleMeasurementMode;
   window.togglePersistMeasurements = togglePersistMeasurements;
   window.clearMeasurements = clearMeasurements;
+  window.toggleAngleMeasurementMode = toggleAngleMeasurementMode;
+  window.toggleAngleMode = toggleAngleMode;
+  window.getAngleMode = () => angleMode3Point; // Export angle mode getter
+  window.toggleFPSDisplay = toggleFPSDisplay;
   window.exportScreenshot = exportScreenshot;
+  window.exportSVG = exportSVG;
   window.exportMeasurements = exportMeasurements;
   window.exportContactsData = exportContactsData;
 
   (function renderLoop () {
     controls.update();
     renderer.render(scene, camera);
+    updateFPS(); // Phase 4: Update FPS counter
     requestAnimationFrame(renderLoop);
   })();
 })();

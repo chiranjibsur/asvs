@@ -54,7 +54,9 @@ The viewer offers three distinct rendering modes accessible via the navigation b
     - **Top Contacts**: Panel showing most frequent contacts
     - **Enable Clipping**: Clipping plane for cross-section views
     - **Measure Distance**: Interactive distance measurement tool
-    - **Export**: Export options for visualization
+    - **Measure Angle**: 3-point and 4-point (dihedral) angle measurements with visual arcs
+    - **Show FPS**: Real-time performance monitoring with color-coded warnings
+    - **Export**: Enhanced export options (PNG, SVG, measurements, contacts)
 
 ##### c) **Ribbon Viewer** (`/viewer/ribbon`)
 - **Purpose**: Protein backbone visualization for secondary structure emphasis
@@ -149,6 +151,100 @@ The `viewer/` directory contains:
 - `rmsf_residue.json` - Root Mean Square Fluctuation data
 - `contacts.json` - Residue-residue contact network
 - `.trajectory.xtc_offsets.npz` - MDAnalysis cache for fast frame access
+
+### 🎯 Phase 4 Features (Advanced Measurements & Export)
+
+#### 1. **Angle Measurements**
+
+**3-Point Angle Measurement:**
+- Measures the angle formed by three atoms (vertex at second atom)
+- Visual representation: green connecting lines and arc showing angle
+- Calculated using Three.js Vector3.angleTo() method
+- Displays angle value in degrees (0° - 180°)
+- Usage: Click "Measure Angle" → Select 3 atoms → Angle displayed automatically
+
+**4-Point Dihedral Angle Measurement:**
+- Measures torsion/dihedral angles formed by four atoms
+- Visual representation: green connecting lines through all four atoms
+- Calculated using cross product method for signed angles
+- Displays signed dihedral angle in degrees (-180° to +180°)
+- Useful for protein backbone angles (phi, psi) and conformational analysis
+- Usage: Click "Measure Angle" → Select "4-Point Dihedral" → Select 4 atoms
+
+**Features:**
+- Green markers distinguish angle measurements from distance measurements (magenta)
+- Both measurement types stored in unified measurements list
+- Angle mode selector panel for easy switching between 3-point and 4-point modes
+- Status display shows current mode
+- Measurements persist until manually cleared
+
+#### 2. **FPS Performance Monitor**
+
+- Real-time frames-per-second display
+- Updates every 500ms for accurate performance tracking
+- Color-coded performance indicators:
+  - Green (≥30 FPS): Good performance
+  - Red (<30 FPS): Performance warning
+- Toggle on/off with "Show FPS" / "Hide FPS" button
+- Helps users monitor visualization performance with large datasets
+
+#### 3. **SVG Vector Export**
+
+- Export current 3D view as scalable vector graphics (SVG)
+- Publication-quality output suitable for papers and presentations
+- Features:
+  - Converts 3D scene to 2D projection using camera view
+  - Depth sorting: atoms rendered back-to-front for correct layering
+  - Preserves atom colors from current visualization mode
+  - Scalable without loss of quality
+  - Small file size compared to raster images
+- Usage: Click "Export ▼" → Select "SVG Vector"
+- Filename format: `molecular-view-frame{N}-{timestamp}.svg`
+
+#### 4. **Enhanced Measurement Export**
+
+The measurements JSON export now includes:
+- **Distance measurements**: atom pairs, distance in Ångströms
+- **Angle measurements**: atom triplets, angle in degrees, measurement type
+- **Dihedral measurements**: atom quartets, signed angle in degrees
+- Frame number for temporal tracking
+- Measurement ID for reference
+
+Example export format:
+```json
+[
+  {
+    "id": 1,
+    "type": "distance",
+    "atom1": 10,
+    "atom2": 25,
+    "distance": 3.45,
+    "frame": 0,
+    "unit": "Å"
+  },
+  {
+    "id": 2,
+    "type": "angle",
+    "atom1": 5,
+    "atom2": 10,
+    "atom3": 15,
+    "angle": 120.5,
+    "frame": 0,
+    "unit": "°"
+  },
+  {
+    "id": 3,
+    "type": "dihedral",
+    "atom1": 5,
+    "atom2": 10,
+    "atom3": 15,
+    "atom4": 20,
+    "angle": -45.2,
+    "frame": 0,
+    "unit": "°"
+  }
+]
+```
 
 ### 🔧 Legacy Components (Still Present)
 
@@ -332,5 +428,16 @@ The Molecular Visualizer is a fully functional, modern web-based platform for MD
 - ✅ Responsive design for various screen sizes
 - ✅ MDAnalysis-powered trajectory processing
 - ✅ Three.js WebGL rendering for performance
+- ✅ **Phase 4: Advanced measurement tools (3-point angles, dihedral angles)**
+- ✅ **Phase 4: FPS performance monitoring**
+- ✅ **Phase 4: SVG vector export for publication-quality figures**
+- ✅ **Phase 4: Enhanced measurement export with angle data**
 
 The viewer successfully combines trajectory analysis capabilities with intuitive interactive visualization, making it suitable for research, education, and molecular dynamics analysis workflows.
+
+## Implementation Phases Complete
+
+- ✅ **Phase 1**: Atom selection and info panels
+- ✅ **Phase 2**: RMSF visualization and contact networks
+- ✅ **Phase 3**: Molecular clipping and distance measurements
+- ✅ **Phase 4**: Angle measurements, FPS monitoring, and SVG export

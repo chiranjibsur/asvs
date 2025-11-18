@@ -235,10 +235,24 @@
       <button class="btn" id="btnShowContacts">Top Contacts</button>
       <button class="btn" id="btnToggleClipping">Enable Clipping</button>
       <button class="btn" id="btnToggleMeasure">Measure Distance</button>
+      <button class="btn" id="btnToggleAngle">Measure Angle</button>
+      <button class="btn" id="btnToggleFPS">Show FPS</button>
       <button class="btn" id="btnExport">Export ▼</button>
     </div>
     <div class="viewer"><canvas id="canvas"></canvas></div>
     <div id="status" style="margin-top:8px;font:12px/1.3 monospace;color:#9aa3b2">initializing…</div>
+    <div id="fpsDisplay" style="margin-top:4px;font:12px/1.3 monospace;color:#51cf66;display:none;">FPS: --</div>
+  </div>
+
+  <!-- Angle Mode Selector Panel -->
+  <div id="angleModePanel" style="display:none;position:fixed;top:120px;right:20px;background:rgba(15,16,18,0.95);border:1px solid #3a4351;border-radius:8px;padding:16px;backdrop-filter:blur(10px);z-index:1000;min-width:200px;">
+    <h3 style="margin:0 0 12px 0;font-size:14px;color:#e8eaed;">Angle Mode</h3>
+    <button class="btn" id="btnAngleMode3Point" style="width:100%;margin-bottom:8px;">3-Point Angle</button>
+    <button class="btn" id="btnAngleMode4Point" style="width:100%;">4-Point Dihedral</button>
+    <div style="margin-top:12px;font-size:11px;color:#9aa3b2;">
+      <div id="angleModeStatus">Mode: 3-Point</div>
+      <div style="margin-top:4px;">Click atoms to measure</div>
+    </div>
   </div>
 
   <!-- Atom Info Panel -->
@@ -306,6 +320,7 @@
   <!-- Export Menu -->
   <div id="exportMenu">
     <button class="menu-btn" id="btnExportPNG">PNG Image</button>
+    <button class="menu-btn" id="btnExportSVG">SVG Vector</button>
     <button class="menu-btn" id="btnExportMeasurements">Measurements (JSON)</button>
     <button class="menu-btn" id="btnExportContacts">Contacts (CSV)</button>
   </div>
@@ -391,7 +406,51 @@
     document.getElementById('chkPersistMeasurements').addEventListener('change', () => {
       window.togglePersistMeasurements();
     });
-    
+
+    // Phase 4: Angle measurement controls
+    document.getElementById('btnToggleAngle').addEventListener('click', () => {
+      const btn = document.getElementById('btnToggleAngle');
+      const enabled = window.toggleAngleMeasurementMode();
+      btn.textContent = enabled ? 'Stop Angle' : 'Measure Angle';
+      btn.style.background = enabled ? '#e74c3c' : '';
+      
+      // Show/hide angle mode panel
+      const panel = document.getElementById('angleModePanel');
+      if (panel) {
+        panel.style.display = enabled ? 'block' : 'none';
+      }
+      
+      // Disable distance measurement if angle is enabled
+      if (enabled) {
+        const measureBtn = document.getElementById('btnToggleMeasure');
+        if (measureBtn.textContent === 'Stop Measure') {
+          measureBtn.click();
+        }
+      }
+    });
+
+    // Angle mode switchers
+    document.getElementById('btnAngleMode3Point').addEventListener('click', () => {
+      const is3Point = true;
+      const currentMode = window.getAngleMode();
+      if (currentMode !== is3Point) window.toggleAngleMode();
+      document.getElementById('angleModeStatus').textContent = 'Mode: 3-Point';
+    });
+
+    document.getElementById('btnAngleMode4Point').addEventListener('click', () => {
+      const is3Point = false;
+      const currentMode = window.getAngleMode();
+      if (currentMode !== is3Point) window.toggleAngleMode();
+      document.getElementById('angleModeStatus').textContent = 'Mode: 4-Point Dihedral';
+    });
+
+    // Phase 4: FPS display toggle
+    document.getElementById('btnToggleFPS').addEventListener('click', () => {
+      const btn = document.getElementById('btnToggleFPS');
+      const enabled = window.toggleFPSDisplay();
+      btn.textContent = enabled ? 'Hide FPS' : 'Show FPS';
+    });
+
     // Phase 3: Export controls
     document.getElementById('btnExport').addEventListener('click', () => {
       const menu = document.getElementById('exportMenu');
@@ -400,6 +459,11 @@
     
     document.getElementById('btnExportPNG').addEventListener('click', () => {
       window.exportScreenshot('png');
+      document.getElementById('exportMenu').style.display = 'none';
+    });
+    
+    document.getElementById('btnExportSVG').addEventListener('click', () => {
+      window.exportSVG();
       document.getElementById('exportMenu').style.display = 'none';
     });
     
