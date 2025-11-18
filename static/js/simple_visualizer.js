@@ -59,14 +59,6 @@
     tica: null
   };
 
-  let currentMetric = 'hotspot';
-  let metricsCache = {
-    hotspot: {},
-    anomaly: {},
-    rmsf: null,
-    tica: null
-  };
-
   const toHex = (n) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, "0");
 
   function colorFromScore01(s) {
