@@ -76,17 +76,48 @@
     loadRibbon(currentFrame);
   }
 
-  // --- color helpers (blue → white → red) ---
+  // --- color helpers (enhanced diverging colormap) ---
   function colorFromScore (s) {
+    // Enhanced diverging colormap: deep blue → light blue → white → pink → light red → blood red
+    // Gradient stops: #0000ff → #4fa9ff → #ffffff → #ffb6c1 → #ff6666 → #8b0000
     const t = Math.max(0, Math.min(1, +s || 0));
     const c = new THREE.Color();
-    if (t <= 0.5) {
-      const k = t / 0.5;                // 0..1
-      c.setRGB(k, k, 1);                // (0,0,1) → (1,1,1)
+    
+    let r, g, b;
+    
+    if (t <= 0.2) {
+      // Deep blue (#0000ff) to light blue (#4fa9ff)
+      const u = t / 0.2;
+      r = 0 + u * 0x4f / 255;
+      g = 0 + u * 0xa9 / 255;
+      b = 1;
+    } else if (t <= 0.4) {
+      // Light blue (#4fa9ff) to white (#ffffff)
+      const u = (t - 0.2) / 0.2;
+      r = 0x4f / 255 + u * (1 - 0x4f / 255);
+      g = 0xa9 / 255 + u * (1 - 0xa9 / 255);
+      b = 1;
+    } else if (t <= 0.6) {
+      // White (#ffffff) to light pink (#ffb6c1)
+      const u = (t - 0.4) / 0.2;
+      r = 1;
+      g = 1 - u * (1 - 0xb6 / 255);
+      b = 1 - u * (1 - 0xc1 / 255);
+    } else if (t <= 0.8) {
+      // Light pink (#ffb6c1) to light red (#ff6666)
+      const u = (t - 0.6) / 0.2;
+      r = 1;
+      g = 0xb6 / 255 - u * (0xb6 / 255 - 0x66 / 255);
+      b = 0xc1 / 255 - u * (0xc1 / 255 - 0x66 / 255);
     } else {
-      const k = (t - 0.5) / 0.5;        // 0..1
-      c.setRGB(1, 1 - 0.2 * k, 1 - k);  // (1,1,1) → (1,0.8,0) → (1,0,0)
+      // Light red (#ff6666) to blood red (#8b0000)
+      const u = (t - 0.8) / 0.2;
+      r = 1 - u * (1 - 0x8b / 255);
+      g = 0x66 / 255 - u * (0x66 / 255);
+      b = 0x66 / 255 - u * (0x66 / 255);
     }
+    
+    c.setRGB(r, g, b);
     return c;
   }
 
