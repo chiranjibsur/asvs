@@ -430,6 +430,56 @@
     hideResidueInfo();
   }
 
+  // Helper functions to generate detailed explanations for metric values
+  // Based on structural biology principles and MD analysis best practices
+  function getHotspotExplanation(value) {
+    if (value < 0.2) {
+      return `<strong>Low Activity Region</strong><br>This residue shows minimal dynamic activity in this frame. Typically indicates stable structural regions.<br><em style="font-size: 10px; opacity: 0.7;">Interpretation: Low hotspot scores suggest residues maintaining structural stability.</em>`;
+    } else if (value < 0.5) {
+      return `<strong>Moderate Activity</strong><br>This residue exhibits moderate dynamic behavior. May be involved in conformational flexibility or peripheral functional regions.<br><em style="font-size: 10px; opacity: 0.7;">Interpretation: Intermediate scores often found at domain interfaces or flexible loops.</em>`;
+    } else if (value < 0.8) {
+      return `<strong>High Activity Region</strong><br>This residue is highly dynamic and potentially functionally important. Common in binding sites, catalytic regions, or allosteric pathways.<br><em style="font-size: 10px; opacity: 0.7;">Interpretation: High scores correlate with functional hotspots (Ref: ensemble-anomaly-maps pipeline).</em>`;
+    } else {
+      return `<strong>Critical Hotspot</strong><br>This residue shows exceptional activity - likely central to protein function. May indicate active sites, critical binding interfaces, or key hinge regions.<br><em style="font-size: 10px; opacity: 0.7;">Interpretation: Extreme scores (>0.8) warrant detailed investigation for functional significance.</em>`;
+    }
+  }
+
+  function getAnomalyExplanation(value) {
+    if (value < 0.2) {
+      return `<strong>Normal Conformation</strong><br>This residue adopts a typical conformation consistent with equilibrium dynamics. No unusual structural deviations detected by the ML pipeline.<br><em style="font-size: 10px; opacity: 0.7;">Method: Anomaly detection identifies deviations from typical conformational ensemble.</em>`;
+    } else if (value < 0.5) {
+      return `<strong>Minor Deviation</strong><br>Slight deviation from typical behavior. Could represent thermal fluctuations or minor conformational sampling within normal dynamics.<br><em style="font-size: 10px; opacity: 0.7;">Note: Moderate anomalies may reflect transient conformational states.</em>`;
+    } else if (value < 0.8) {
+      return `<strong>Unusual Conformation</strong><br>Significant anomalous behavior detected! May be exploring rare conformational states important for function, such as transition states or induced-fit conformations.<br><em style="font-size: 10px; opacity: 0.7;">Significance: High anomaly scores can indicate functionally relevant rare events.</em>`;
+    } else {
+      return `<strong>Highly Anomalous!</strong><br>Extremely unusual conformation detected by ML analysis. Possible interpretations: (1) functional transition state, (2) rare but biologically relevant conformation, (3) critical dynamic event.<br><em style="font-size: 10px; opacity: 0.7;">⚠️ Extreme anomalies should be validated with additional analysis.</em>`;
+    }
+  }
+
+  function getRMSFExplanation(value) {
+    if (value < 0.2) {
+      return `<strong>Rigid/Stable Region</strong><br>Highly constrained with minimal fluctuation. Characteristic of structural core residues, secondary structure elements (α-helix/β-sheet), or residues critical for architecture.<br><em style="font-size: 10px; opacity: 0.7;">RMSF: Root Mean Square Fluctuation measures time-averaged positional variance.</em>`;
+    } else if (value < 0.5) {
+      return `<strong>Moderate Flexibility</strong><br>Shows moderate fluctuations with some conformational freedom. Typical of residues in stable loops or at secondary structure boundaries.<br><em style="font-size: 10px; opacity: 0.7;">Interpretation: Intermediate RMSF common in semi-flexible regions.</em>`;
+    } else if (value < 0.8) {
+      return `<strong>Flexible Region</strong><br>High flexibility with significant fluctuations. Common in surface loops, linker regions, or areas involved in conformational changes. May be functionally important for binding/catalysis.<br><em style="font-size: 10px; opacity: 0.7;">Note: High RMSF correlates with entropic contributions to binding (thermodynamics).</em>`;
+    } else {
+      return `<strong>Extremely Flexible</strong><br>Very high flexibility - likely in highly mobile regions (terminal ends, long loops, or intrinsically disordered regions). May be critical for adaptive functions.<br><em style="font-size: 10px; opacity: 0.7;">⚠️ Extreme RMSF (>0.8) may indicate poor sampling or genuine disorder.</em>`;
+    }
+  }
+
+  function getTICAExplanation(value) {
+    if (value < 0.2) {
+      return `<strong>Low Collective Motion Role</strong><br>Minimal contribution to slowest collective motions. Likely moves independently or participates in fast, localized fluctuations rather than large-scale changes.<br><em style="font-size: 10px; opacity: 0.7;">tICA: Time-lagged Independent Component Analysis identifies slow collective modes.</em>`;
+    } else if (value < 0.5) {
+      return `<strong>Moderate Contribution</strong><br>Moderate involvement in collective dynamics. Participates in some large-scale motions but not a primary driver of slow conformational transitions.<br><em style="font-size: 10px; opacity: 0.7;">Method: tICA importance reflects contribution to slowest eigenvectors.</em>`;
+    } else if (value < 0.8) {
+      return `<strong>Important for Collective Motion</strong><br>Significant contribution to slow, collective protein motions! Likely involved in functionally relevant changes such as domain movements or allosteric transitions.<br><em style="font-size: 10px; opacity: 0.7;">Significance: High tICA scores indicate residues driving functional dynamics.</em>`;
+    } else {
+      return `<strong>Critical Driver of Dynamics</strong><br>Key player in slowest collective motions! Essential for large-scale conformational changes - likely critical for biological function, allosteric regulation, or structural transitions.<br><em style="font-size: 10px; opacity: 0.7;">⚠️ Highest tICA scores identify allosteric networks and functional hinges.</em>`;
+    }
+  }
+
   async function displayResidueInfo(residueIndex) {
     try {
       // Get residue metadata
@@ -444,29 +494,36 @@
       const currentFrame = parseInt(slider.value, 10);
       const coords = caPositions[residueIndex];
       
-      // Get hotspot data for this residue
+      // Get all metric data for this residue
+      const hotspotData = await fetchMetricData('hotspot', currentFrame);
+      const anomalyData = await fetchMetricData('anomaly', currentFrame);
+      const rmsfData_local = await fetchMetricData('rmsf', 0);
+      const ticaData = await fetchMetricData('tica', 0);
+      
       const resnumKey = String(residue.resnum);
-      const hotspotValue = currentHotspots[resnumKey] 
-                        ?? currentHotspots[String(residueIndex+1)] 
-                        ?? currentHotspots[String(residueIndex)] 
+      const residueIdx = String(residueIndex);
+      
+      const hotspotValue = hotspotData[resnumKey] 
+                        ?? hotspotData[String(residueIndex+1)] 
+                        ?? hotspotData[residueIdx] 
                         ?? 0;
+      const anomalyValue = anomalyData[resnumKey] 
+                        ?? anomalyData[String(residueIndex+1)] 
+                        ?? anomalyData[residueIdx] 
+                        ?? 0;
+      const rmsfValue = rmsfData_local[residueIdx] || 0;
+      const ticaValue = ticaData[residueIdx] || 0;
       
-      // Get RMSF value
-      let rmsfHTML = '';
-      if (rmsfData && rmsfData.normalized) {
-        const rmsfValue = rmsfData.normalized[String(residueIndex)] || 0;
-        const actualRMSF = rmsfData.min + (rmsfValue * (rmsfData.max - rmsfData.min));
-        rmsfHTML = `
-          <div class="info-section">
-            <strong>RMSF (Flexibility):</strong> ${actualRMSF.toFixed(2)} Å
-          </div>
-        `;
-      }
+      // Generate detailed explanations for each metric
+      const hotspotExplanation = getHotspotExplanation(hotspotValue);
+      const anomalyExplanation = getAnomalyExplanation(anomalyValue);
+      const rmsfExplanation = getRMSFExplanation(rmsfValue);
+      const ticaExplanation = getTICAExplanation(ticaValue);
       
-      // Build info HTML
+      // Build info HTML with scientific explanations
       const infoHTML = `
         <div class="residue-info-panel">
-          <h3>Residue Information</h3>
+          <h3>Residue Metrics Analysis</h3>
           <div class="info-section">
             <strong>Residue:</strong> ${residue.resname}${residue.resnum} (Chain ${residue.chain})
           </div>
@@ -479,10 +536,25 @@
             Y: ${coords[1].toFixed(2)} Å<br>
             Z: ${coords[2].toFixed(2)} Å
           </div>
-          <div class="info-section">
-            <strong>Hotspot Score:</strong> ${hotspotValue.toFixed(3)}
+          <div class="info-section" style="border-top: 1px solid #2b2f3a; padding-top: 10px; margin-top: 10px;">
+            <strong>🔴 Dynamic Hotspot: ${hotspotValue.toFixed(3)}</strong><br>
+            <span style="font-size: 11px; color: #9aa3b2; line-height: 1.4;">${hotspotExplanation}</span>
           </div>
-          ${rmsfHTML}
+          <div class="info-section">
+            <strong>🟠 Dynamic Anomaly: ${anomalyValue.toFixed(3)}</strong><br>
+            <span style="font-size: 11px; color: #9aa3b2; line-height: 1.4;">${anomalyExplanation}</span>
+          </div>
+          <div class="info-section">
+            <strong>🟡 RMSF (Flexibility): ${rmsfValue.toFixed(3)}</strong><br>
+            <span style="font-size: 11px; color: #9aa3b2; line-height: 1.4;">${rmsfExplanation}</span>
+          </div>
+          <div class="info-section">
+            <strong>🟢 tICA Importance: ${ticaValue.toFixed(3)}</strong><br>
+            <span style="font-size: 11px; color: #9aa3b2; line-height: 1.4;">${ticaExplanation}</span>
+          </div>
+          <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #2b2f3a; font-size: 10px; color: #7a8394; line-height: 1.4;">
+            <strong>ℹ️ Scientific Note:</strong> These interpretations are based on established structural biology principles and typical value ranges. Individual proteins may vary. For definitive functional conclusions, correlate with experimental data and structural context.
+          </div>
           <button id="closeInfoBtn" class="close-btn">Close</button>
         </div>
       `;
