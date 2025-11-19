@@ -127,9 +127,6 @@ function createRibbonGeometry(curve, segments, secondaryStructure, colors) {
   const colorArray = [];
   const indices = [];
   
-  // Number of points across the ribbon
-  const crossSectionPoints = 12;
-  
   for (let i = 0; i <= segments; i++) {
     const frame = frames[i];
     const t = i / segments;
@@ -138,56 +135,142 @@ function createRibbonGeometry(curve, segments, secondaryStructure, colors) {
     const ssIndex = Math.min(Math.floor(t * secondaryStructure.length), secondaryStructure.length - 1);
     const ss = secondaryStructure[ssIndex] || 'C';
     
-    let width, thickness;
-    if (ss === 'H') {
-      // Helix: moderate width, circular cross-section
-      width = 1.5;
-      thickness = 1.5;
-    } else if (ss === 'E') {
-      // Sheet: wide and flat
-      width = 2.5;
-      thickness = 0.3;
-    } else {
-      // Coil: thin tube
-      width = 0.8;
-      thickness = 0.8;
-    }
-    
     // Get color for this segment
     const colorIndex = Math.min(Math.floor(t * colors.length), colors.length - 1);
     const color = colors[colorIndex] || new THREE.Color(0xcccccc);
     
-    // Create cross-section
-    for (let j = 0; j <= crossSectionPoints; j++) {
-      const angle = (j / crossSectionPoints) * Math.PI * 2;
+    if (ss === 'E') {
+      // Beta sheet: Flat ribbon (rectangular cross-section)
+      const width = 3.0;  // Wide for sheets
+      const thickness = 0.2;  // Very thin for flat ribbon
       
-      // Elliptical cross-section
-      const x = Math.cos(angle) * width;
-      const y = Math.sin(angle) * thickness;
+      // Create a flat rectangular cross-section
+      // Top edge
+      const topLeft = frame.position.clone()
+        .add(frame.normal.clone().multiplyScalar(-width / 2))
+        .add(frame.binormal.clone().multiplyScalar(thickness / 2));
+      const topRight = frame.position.clone()
+        .add(frame.normal.clone().multiplyScalar(width / 2))
+        .add(frame.binormal.clone().multiplyScalar(thickness / 2));
       
-      // Position in 3D
-      const offset = frame.normal.clone().multiplyScalar(x)
-        .add(frame.binormal.clone().multiplyScalar(y));
-      const pos = frame.position.clone().add(offset);
+      // Bottom edge
+      const bottomLeft = frame.position.clone()
+        .add(frame.normal.clone().multiplyScalar(-width / 2))
+        .add(frame.binormal.clone().multiplyScalar(-thickness / 2));
+      const bottomRight = frame.position.clone()
+        .add(frame.normal.clone().multiplyScalar(width / 2))
+        .add(frame.binormal.clone().multiplyScalar(-thickness / 2));
       
-      positions.push(pos.x, pos.y, pos.z);
+      // Add vertices (4 corners of the ribbon)
+      positions.push(topLeft.x, topLeft.y, topLeft.z);
+      positions.push(topRight.x, topRight.y, topRight.z);
+      positions.push(bottomLeft.x, bottomLeft.y, bottomLeft.z);
+      positions.push(bottomRight.x, bottomRight.y, bottomRight.z);
       
-      // Normal for lighting
-      const normal = frame.normal.clone().multiplyScalar(Math.cos(angle))
-        .add(frame.binormal.clone().multiplyScalar(Math.sin(angle))).normalize();
-      normals.push(normal.x, normal.y, normal.z);
+      // Normals point up/down for flat surface
+      const upNormal = frame.binormal.clone();
+      const downNormal = frame.binormal.clone().negate();
       
-      // Color
-      colorArray.push(color.r, color.g, color.b);
+      normals.push(upNormal.x, upNormal.y, upNormal.z);
+      normals.push(upNormal.x, upNormal.y, upNormal.z);
+      normals.push(downNormal.x, downNormal.y, downNormal.z);
+      normals.push(downNormal.x, downNormal.y, downNormal.z);
+      
+      // Colors
+      for (let j = 0; j < 4; j++) {
+        colorArray.push(color.r, color.g, color.b);
+      }
+      
+    } else if (ss === 'H') {
+      // Alpha helix: Wider flat ribbon with slight rounding
+      const width = 2.2;
+      const thickness = 0.4;  // Slightly thicker than sheets
+      
+      // Create a flat rectangular cross-section
+      const topLeft = frame.position.clone()
+        .add(frame.normal.clone().multiplyScalar(-width / 2))
+        .add(frame.binormal.clone().multiplyScalar(thickness / 2));
+      const topRight = frame.position.clone()
+        .add(frame.normal.clone().multiplyScalar(width / 2))
+        .add(frame.binormal.clone().multiplyScalar(thickness / 2));
+      
+      const bottomLeft = frame.position.clone()
+        .add(frame.normal.clone().multiplyScalar(-width / 2))
+        .add(frame.binormal.clone().multiplyScalar(-thickness / 2));
+      const bottomRight = frame.position.clone()
+        .add(frame.normal.clone().multiplyScalar(width / 2))
+        .add(frame.binormal.clone().multiplyScalar(-thickness / 2));
+      
+      // Add vertices
+      positions.push(topLeft.x, topLeft.y, topLeft.z);
+      positions.push(topRight.x, topRight.y, topRight.z);
+      positions.push(bottomLeft.x, bottomLeft.y, bottomLeft.z);
+      positions.push(bottomRight.x, bottomRight.y, bottomRight.z);
+      
+      // Normals
+      const upNormal = frame.binormal.clone();
+      const downNormal = frame.binormal.clone().negate();
+      
+      normals.push(upNormal.x, upNormal.y, upNormal.z);
+      normals.push(upNormal.x, upNormal.y, upNormal.z);
+      normals.push(downNormal.x, downNormal.y, downNormal.z);
+      normals.push(downNormal.x, downNormal.y, downNormal.z);
+      
+      // Colors
+      for (let j = 0; j < 4; j++) {
+        colorArray.push(color.r, color.g, color.b);
+      }
+      
+    } else {
+      // Coil/loop: Narrow flat ribbon (like sheets but thinner)
+      const width = 1.5;  // Narrower than sheets
+      const thickness = 0.15;  // Very thin for flat look
+      
+      // Create a flat rectangular cross-section
+      const topLeft = frame.position.clone()
+        .add(frame.normal.clone().multiplyScalar(-width / 2))
+        .add(frame.binormal.clone().multiplyScalar(thickness / 2));
+      const topRight = frame.position.clone()
+        .add(frame.normal.clone().multiplyScalar(width / 2))
+        .add(frame.binormal.clone().multiplyScalar(thickness / 2));
+      
+      const bottomLeft = frame.position.clone()
+        .add(frame.normal.clone().multiplyScalar(-width / 2))
+        .add(frame.binormal.clone().multiplyScalar(-thickness / 2));
+      const bottomRight = frame.position.clone()
+        .add(frame.normal.clone().multiplyScalar(width / 2))
+        .add(frame.binormal.clone().multiplyScalar(-thickness / 2));
+      
+      // Add vertices
+      positions.push(topLeft.x, topLeft.y, topLeft.z);
+      positions.push(topRight.x, topRight.y, topRight.z);
+      positions.push(bottomLeft.x, bottomLeft.y, bottomLeft.z);
+      positions.push(bottomRight.x, bottomRight.y, bottomRight.z);
+      
+      // Normals
+      const upNormal = frame.binormal.clone();
+      const downNormal = frame.binormal.clone().negate();
+      
+      normals.push(upNormal.x, upNormal.y, upNormal.z);
+      normals.push(upNormal.x, upNormal.y, upNormal.z);
+      normals.push(downNormal.x, downNormal.y, downNormal.z);
+      normals.push(downNormal.x, downNormal.y, downNormal.z);
+      
+      // Colors
+      for (let j = 0; j < 4; j++) {
+        colorArray.push(color.r, color.g, color.b);
+      }
     }
   }
   
-  // Create indices for triangles
+  // Create indices - all types now use 4 vertices (flat ribbons)
+  const verticesPerRing = 4;
   for (let i = 0; i < segments; i++) {
-    for (let j = 0; j < crossSectionPoints; j++) {
-      const a = i * (crossSectionPoints + 1) + j;
+    // Create faces for the ribbon strip
+    for (let j = 0; j < verticesPerRing - 1; j++) {
+      const a = i * verticesPerRing + j;
       const b = a + 1;
-      const c = a + (crossSectionPoints + 1);
+      const c = a + verticesPerRing;
       const d = c + 1;
       
       // Two triangles per quad
@@ -202,9 +285,6 @@ function createRibbonGeometry(curve, segments, secondaryStructure, colors) {
   geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
   geometry.setAttribute('color', new THREE.Float32BufferAttribute(colorArray, 3));
   geometry.setIndex(indices);
-  
-  // Compute smooth normals
-  geometry.computeVertexNormals();
   
   return geometry;
 }

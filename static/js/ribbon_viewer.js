@@ -106,9 +106,9 @@
   let useEnhancedRibbon = true; // Toggle for enhanced ribbon
   
   async function loadRibbon (frame) {
-    status.textContent = `loading ribbon frame ${frame}…`;
+    status.textContent = `loading ribbon frame ${frame}...`;
 
-    // 1) ordered Cα coordinates
+    // 1) ordered Ca coordinates
     const ca = (await (await fetch(`/api/trajectory/ca/${frame}`)).json()).ca; // [[x,y,z], ...]
     caPositions = ca; // Store for click detection
     
@@ -123,7 +123,7 @@
       console.warn('Could not fetch secondary structure data:', e);
     }
     
-    // 2) per-residue hotspot scores or RMSF
+    // 3) per-residue hotspot scores or RMSF
     let scoreData = {};
     if (showRMSF && rmsfData) {
       scoreData = rmsfData.normalized;
@@ -133,49 +133,81 @@
       scoreData = hs;
     }
 
-    // build curve through Cα
+    // build curve through Ca
     const pts   = ca.map(p => new THREE.Vector3(p[0], p[1], p[2]));
     const curve = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.1);
 
-    // geometry: tube with vertex colors
+    // Clean up previous tube
     if (tube) { scene.remove(tube); tube.geometry.dispose(); tube.material.dispose(); }
-    const tubularSegments = Math.max(120, pts.length * 4);
-    const radius = 1.2, radialSegments = 12;
-    const geom = new THREE.TubeGeometry(curve, tubularSegments, radius, radialSegments, false);
 
-    // map each ring of the tube (along the path) to the nearest residue index
-    const rings = tubularSegments + 1; // tube has this many rings along path
-    const colors = new Float32Array(geom.attributes.position.count * 3);
-
-    function scoreForRing (ringIdx) {
-      // nearest residue index in [0, resnumsInOrder.length-1]
-      const ridx = Math.round(ringIdx / (rings - 1) * (resnumsInOrder.length - 1));
+    // Decide whether to use enhanced ribbon or fallback to simple tube
+    const canUseEnhanced = useEnhancedRibbon && window.SplineUtils && ssData && ssData.residues;
+    
+    let geom;
+    if (canUseEnhanced) {
+      // Use enhanced ribbon with secondary structure
+      const tubularSegments = Math.max(120, pts.length * 4);
       
-      if (showRMSF && rmsfData) {
-        // For RMSF, use 0-based index
-        return scoreData[String(ridx)] ?? 0.0;
-      } else {
-        // For hotspots, use resnum
-        const resnumKey = resnumsInOrder[ridx];        // prefer PDB resnum
-        const s = scoreData[resnumKey] ?? scoreData[String(ridx+1)]  // fallback: 1-based index
-                                 ?? scoreData[String(ridx)]   // fallback: 0-based index
-                                 ?? 0.0;
-        return s;
+      // Extract secondary structure array
+      const ssArray = ssData.residues.map(r => r.ss || 'C');
+      
+      // Build color array for each residue
+      const colorArray = [];
+      for (let i = 0; i < resnumsInOrder.length; i++) {
+        const resnumKey = resnumsInOrder[i];
+        let score = 0.0;
+        
+        if (showRMSF && rmsfData) {
+          score = scoreData[String(i)] ?? 0.0;
+        } else {
+          score = scoreData[resnumKey] ?? scoreData[String(i+1)] ?? scoreData[String(i)] ?? 0.0;
+        }
+        
+        colorArray.push(colorFromScore(score));
       }
-    }
+      
+      // Create enhanced ribbon geometry
+      geom = window.SplineUtils.createRibbonGeometry(curve, tubularSegments, ssArray, colorArray);
+    } else {
+      // Fallback to simple tube geometry
+      const tubularSegments = Math.max(120, pts.length * 4);
+      const radius = 1.2, radialSegments = 12;
+      geom = new THREE.TubeGeometry(curve, tubularSegments, radius, radialSegments, false);
 
-    // paint each vertex by its ring’s score
-    for (let ring = 0; ring < rings; ring++) {
-      const s = scoreForRing(ring);
-      const col = colorFromScore(s);
-      for (let j = 0; j < radialSegments + 1; j++) {
-        const idx = (ring * (radialSegments + 1) + j) * 3;
-        colors[idx + 0] = col.r;
-        colors[idx + 1] = col.g;
-        colors[idx + 2] = col.b;
+      // map each ring of the tube (along the path) to the nearest residue index
+      const rings = tubularSegments + 1; // tube has this many rings along path
+      const colors = new Float32Array(geom.attributes.position.count * 3);
+
+      function scoreForRing (ringIdx) {
+        // nearest residue index in [0, resnumsInOrder.length-1]
+        const ridx = Math.round(ringIdx / (rings - 1) * (resnumsInOrder.length - 1));
+        
+        if (showRMSF && rmsfData) {
+          // For RMSF, use 0-based index
+          return scoreData[String(ridx)] ?? 0.0;
+        } else {
+          // For hotspots, use resnum
+          const resnumKey = resnumsInOrder[ridx];        // prefer PDB resnum
+          const s = scoreData[resnumKey] ?? scoreData[String(ridx+1)]  // fallback: 1-based index
+                                   ?? scoreData[String(ridx)]   // fallback: 0-based index
+                                   ?? 0.0;
+          return s;
+        }
       }
+
+      // paint each vertex by its ring's score
+      for (let ring = 0; ring < rings; ring++) {
+        const s = scoreForRing(ring);
+        const col = colorFromScore(s);
+        for (let j = 0; j < radialSegments + 1; j++) {
+          const idx = (ring * (radialSegments + 1) + j) * 3;
+          colors[idx + 0] = col.r;
+          colors[idx + 1] = col.g;
+          colors[idx + 2] = col.b;
+        }
+      }
+      geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     }
-    geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
     const mat = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.1, roughness: 0.5 });
     tube = new THREE.Mesh(geom, mat);
@@ -183,6 +215,7 @@
 
     status.textContent = `frame ${frame} loaded`;
   }
+
 
   // ---- Residue selection functions ----
   function onRibbonClick(event) {
