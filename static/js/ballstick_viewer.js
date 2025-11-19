@@ -8,6 +8,55 @@
   const btnPlay  = document.getElementById('btnPlay');
   const btnPause = document.getElementById('btnPause');
   const metaPill = document.getElementById('metaPill');
+  const metricSelect = document.getElementById('metricSelect');
+  const metricInfo = document.getElementById('metricInfo');
+  const legendTitle = document.getElementById('legendTitle');
+  const legendDesc = document.getElementById('legendDesc');
+  const heatmapCanvas = document.getElementById('heatmapCanvas');
+
+  // ---- Metric Configuration ----
+  const METRIC_CONFIG = {
+    hotspot: {
+      title: "Dynamic Hotspot",
+      description: "Visualize dynamic regions of interest",
+      legendDesc: "High values indicate regions of interest",
+      fetchData: (frame) => fetch(`/api/hotspots/${frame}`).then(r => r.ok ? r.json() : {}),
+      fetchStaticData: null,
+      isFrameDependent: true
+    },
+    anomaly: {
+      title: "Dynamic Anomaly",
+      description: "Unusual motion indicative of functional transitions",
+      legendDesc: "High values indicate anomalous conformations",
+      fetchData: (frame) => fetch(`/api/metrics/anomaly/${frame}`).then(r => r.ok ? r.json() : {}),
+      fetchStaticData: null,
+      isFrameDependent: true
+    },
+    rmsf: {
+      title: "RMSF (Flexibility)",
+      description: "Root Mean Square Fluctuation - inherent flexibility",
+      legendDesc: "High values indicate flexible regions",
+      fetchData: null,
+      fetchStaticData: () => fetch('/api/rmsf').then(r => r.ok ? r.json() : {normalized: {}}),
+      isFrameDependent: false
+    },
+    tica: {
+      title: "tICA Importance",
+      description: "Contribution to slow collective motions",
+      legendDesc: "High values indicate importance in collective dynamics",
+      fetchData: null,
+      fetchStaticData: () => fetch('/api/metrics/tica_importance').then(r => r.ok ? r.json() : {normalized: {}}),
+      isFrameDependent: false
+    }
+  };
+
+  let currentMetric = 'hotspot';
+  let metricsCache = {
+    hotspot: {},
+    anomaly: {},
+    rmsf: null,
+    tica: null
+  };
 
   // ---- meta ----
   const meta = await (await fetch('/api/trajectory/meta')).json();
@@ -1024,6 +1073,88 @@
     return c;
   }
 
+  // ---- Metric Data Fetching ----
+  async function fetchMetricData(metric, frame) {
+    const config = METRIC_CONFIG[metric];
+    
+    if (!config.isFrameDependent) {
+      // Static data (RMSF, tICA) - load once
+      if (!metricsCache[metric]) {
+        const data = await config.fetchStaticData();
+        metricsCache[metric] = data.normalized || data;
+      }
+      return metricsCache[metric];
+    } else {
+      // Frame-dependent data (hotspot, anomaly) - cache per frame
+      if (!metricsCache[metric][frame]) {
+        const data = await config.fetchData(frame);
+        metricsCache[metric][frame] = data;
+      }
+      return metricsCache[metric][frame];
+    }
+  }
+
+  function updateLegend() {
+    const config = METRIC_CONFIG[currentMetric];
+    legendTitle.textContent = config.title;
+    legendDesc.textContent = config.legendDesc;
+    metricInfo.textContent = config.description;
+  }
+
+  async function updateTimelineHeatmap() {
+    const ctx = heatmapCanvas.getContext('2d');
+    const width = heatmapCanvas.width = heatmapCanvas.clientWidth;
+    const height = heatmapCanvas.height = heatmapCanvas.clientHeight;
+    
+    const config = METRIC_CONFIG[currentMetric];
+    
+    if (!config.isFrameDependent) {
+      // For static metrics, show distribution across residues
+      const data = await fetchMetricData(currentMetric, 0);
+      const values = Object.values(data);
+      
+      // Draw simple bar chart
+      const barWidth = width / values.length;
+      values.forEach((val, idx) => {
+        const col = colorBWR(val);
+        ctx.fillStyle = `rgb(${col.r*255}, ${col.g*255}, ${col.b*255})`;
+        ctx.fillRect(idx * barWidth, 0, barWidth, height);
+      });
+      
+    } else {
+      // For frame-dependent metrics, show max value per frame
+      const frameScores = [];
+      for (let f = 0; f < meta.n_frames; f++) {
+        try {
+          const data = await fetchMetricData(currentMetric, f);
+          const values = Object.values(data);
+          const maxVal = values.length > 0 ? Math.max(...values) : 0;
+          frameScores.push(maxVal);
+        } catch (e) {
+          frameScores.push(0);
+        }
+      }
+      
+      // Draw heatmap
+      const barWidth = width / meta.n_frames;
+      frameScores.forEach((score, idx) => {
+        const col = colorBWR(score);
+        ctx.fillStyle = `rgb(${col.r*255}, ${col.g*255}, ${col.b*255})`;
+        ctx.fillRect(idx * barWidth, 0, barWidth, height);
+      });
+    }
+    
+    // Draw current frame indicator
+    const currentFrame = parseInt(slider.value, 10);
+    const markerX = (currentFrame / meta.n_frames) * width;
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(markerX, 0);
+    ctx.lineTo(markerX, height);
+    ctx.stroke();
+  }
+
   async function fetchHotspots (frame) {
     try {
       const r = await fetch(`/api/hotspots/${frame}`);
@@ -1034,14 +1165,14 @@
     }
   }
 
-  async function applyHotspotColors (frame) {
-    const hs = await fetchHotspots(frame) || {};
+  async function applyMetricColors(frame) {
+    const metricData = await fetchMetricData(currentMetric, frame);
     // make dense residue-indexed scores
     const scores = new Float32Array(meta.n_residues);
-    for (const k in hs) {
+    for (const k in metricData) {
       const idx = parseInt(k, 10);
       if (!Number.isNaN(idx) && idx >= 0 && idx < scores.length) {
-        scores[idx] = +hs[k];
+        scores[idx] = +metricData[k];
       }
     }
     for (let i = 0; i < atomMeshes.length; i++) {
@@ -1049,11 +1180,20 @@
       const t = scores[rIdx] || 0.0;      // 0..1
       atomMeshes[i].material.color.copy(colorBWR(t));
     }
+    // Update timeline
+    await updateTimelineHeatmap();
+  }
+
+  async function applyHotspotColors (frame) {
+    // Legacy function - now redirects to applyMetricColors
+    await applyMetricColors(frame);
   }
 
   // ---- initial placement ----
   updateAtoms(xyz0);
-  await applyHotspotColors(0);
+  await applyMetricColors(0);
+  updateLegend();
+  await updateTimelineHeatmap();
 
   // ---- Atom selection functions ----
   function onAtomClick(event) {
@@ -1294,7 +1434,7 @@
     if (showRMSF && rmsfData) {
       applyRMSFColors();
     } else {
-      await applyHotspotColors(idx);
+      await applyMetricColors(idx);
     }
     status.textContent = `frame ${idx} loaded`;
   }
@@ -1325,6 +1465,24 @@
     btnPause.disabled = true;
     if (rafId) cancelAnimationFrame(rafId);
   };
+
+  // ---- Metric selector and timeline handlers ----
+  metricSelect.addEventListener('change', async () => {
+    currentMetric = metricSelect.value;
+    updateLegend();
+    const currentFrame = parseInt(slider.value, 10);
+    await applyMetricColors(currentFrame);
+  });
+
+  heatmapCanvas.addEventListener('click', (e) => {
+    const rect = heatmapCanvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const fraction = x / rect.width;
+    const targetFrame = Math.floor(fraction * meta.n_frames);
+    slider.value = String(targetFrame);
+    frameLbl.textContent = String(targetFrame);
+    loadFrame(targetFrame);
+  });
 
   // Expose functions to global scope for button handlers
   window.toggleRMSFColoring = toggleRMSFColoring;

@@ -103,11 +103,37 @@
       border-radius:6px;
       font-size:13px;
     }
+    
+    /* Legend (enhanced gradient) */
+    #legend{position:absolute;right:16px;bottom:16px;width:220px;user-select:none;background:rgba(18,20,24,.55);backdrop-filter:blur(4px);border:1px solid #3a3f4a;border-radius:8px;padding:10px;z-index:50;}
+    #legend .title{font:12px/1.3 monospace;color:#c9ceda;margin-bottom:6px;}
+    #legendBar{height:12px;border:1px solid #555;background:linear-gradient(to right,#0000ff,#4fa9ff,#ffffff,#ffb6c1,#ff6666,#8b0000);border-radius:2px;}
+    #legend .ticks{display:flex;justify-content:space-between;font:11px/1.2 monospace;color:#aeb4c2;margin-top:4px;}
+    #legend .desc{margin-top:8px;font:11px/1.3 sans-serif;color:#9aa3b2;}
   </style>
 </head>
 <body>
   <div class="wrap">
     <h1>Ribbon</h1>
+    
+    <!-- Metric Selector -->
+    <div style="margin:12px 0;display:flex;align-items:center;gap:12px;">
+      <label for="metricSelect" style="font:13px/1 monospace;color:#c9ceda;font-weight:600;">Metric:</label>
+      <select id="metricSelect" style="padding:8px 12px;background:#1a1c22;color:#e9eaee;border:1px solid #2b2f3a;border-radius:8px;font:13px/1 monospace;cursor:pointer;min-width:180px;">
+        <option value="hotspot">Dynamic Hotspot</option>
+        <option value="anomaly">Dynamic Anomaly</option>
+        <option value="rmsf">RMSF (Flexibility)</option>
+        <option value="tica">tICA Importance</option>
+      </select>
+      <span id="metricInfo" style="font:12px/1.4 sans-serif;color:#9aa3b2;font-style:italic;">Visualize dynamic regions of interest</span>
+    </div>
+    
+    <!-- Timeline Heatmap -->
+    <div style="margin:16px 0;background:#16181d;border:1px solid #2b2f3a;border-radius:8px;padding:12px;">
+      <h4 style="margin:0 0 8px 0;font:13px/1 monospace;color:#c9ceda;font-weight:600;">Timeline Overview</h4>
+      <canvas id="heatmapCanvas" style="width:100%;height:60px;display:block;border:1px solid #2b2f3a;border-radius:4px;cursor:pointer;"></canvas>
+    </div>
+    
     <div style="display:flex;gap:10px;align-items:center;margin:8px 0 12px">
       <span style="opacity:.75;font:12px/1 monospace">frame</span>
       <input id="slider" type="range" min="0" max="0" step="1" value="0" />
@@ -118,7 +144,19 @@
       <button class="btn" id="btnToggleClipping">Enable Clipping</button>
       <button class="btn" id="btnExportPNG">Export PNG</button>
     </div>
-    <div class="viewer"><canvas id="canvas"></canvas></div>
+    <div class="viewer">
+      <canvas id="canvas"></canvas>
+      
+      <!-- Legend -->
+      <div id="legend">
+        <div class="title" id="legendTitle">Dynamic Hotspot</div>
+        <div id="legendBar"></div>
+        <div class="ticks">
+          <span id="legendMin">0.00</span><span>0.50</span><span id="legendMax">1.00</span>
+        </div>
+        <div class="desc" id="legendDesc">High values indicate regions of interest</div>
+      </div>
+    </div>
     <div id="status" style="margin-top:8px;font:12px/1.3 monospace;color:#9aa3b2">initializing…</div>
   </div>
 
