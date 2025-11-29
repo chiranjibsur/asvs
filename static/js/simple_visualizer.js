@@ -732,10 +732,17 @@
 
   btnPause.addEventListener("click", pausePlayback);
 
+  // Reload current frame with current colormap/metric settings
+  async function reloadCurrentFrame() {
+    const currentFrame = parseInt(slider.value, 10);
+    await loadFrame(currentFrame);
+  }
+
   // Expose playback controls
   window.pausePlayback = pausePlayback;
   window.setPlaybackSpeed = setPlaybackSpeed;
   window.getPlaybackSpeed = () => playbackSpeed;
+  window.reloadCurrentFrame = reloadCurrentFrame;
 
   // Initialize legend and load first frame
   updateLegend();

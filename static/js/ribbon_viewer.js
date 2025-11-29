@@ -749,10 +749,17 @@
   };
   btnPause.onclick = pausePlayback;
 
+  // Reload current frame with current colormap/metric settings
+  async function reloadCurrentFrame() {
+    const currentFrame = parseInt(slider.value, 10);
+    await loadRibbon(currentFrame);
+  }
+
   // Expose playback controls
   window.pausePlayback = pausePlayback;
   window.setPlaybackSpeed = setPlaybackSpeed;
   window.getPlaybackSpeed = () => playbackSpeed;
+  window.reloadCurrentFrame = reloadCurrentFrame;
 
   // ---- Metric selector and timeline handlers ----
   metricSelect.addEventListener('change', async () => {

@@ -713,12 +713,9 @@
       if (window.setColormap) {
         window.setColormap(colormap);
         // Reload current frame to apply new colormap
-        const slider = document.getElementById('slider');
-        const currentFrame = parseInt(slider.value, 10);
-        // Re-apply colors by triggering metric reload
-        const metricSelect = document.getElementById('metricSelect');
-        const event = new Event('change');
-        metricSelect.dispatchEvent(event);
+        if (window.reloadCurrentFrame) {
+          await window.reloadCurrentFrame();
+        }
       }
     });
 
