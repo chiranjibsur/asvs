@@ -125,50 +125,162 @@
     loadRibbon(currentFrame);
   }
 
-  // --- color helpers (enhanced diverging colormap) ---
-  function colorFromScore (s) {
-    // Enhanced diverging colormap: deep blue → light blue → white → pink → light red → blood red
-    // Gradient stops: #0000ff → #4fa9ff → #ffffff → #ffb6c1 → #ff6666 → #8b0000
-    const t = Math.max(0, Math.min(1, +s || 0));
-    const c = new THREE.Color();
-    
-    let r, g, b;
-    
-    if (t <= 0.2) {
-      // Deep blue (#0000ff) to light blue (#4fa9ff)
-      const u = t / 0.2;
-      r = 0 + u * 0x4f / 255;
-      g = 0 + u * 0xa9 / 255;
-      b = 1;
-    } else if (t <= 0.4) {
-      // Light blue (#4fa9ff) to white (#ffffff)
-      const u = (t - 0.2) / 0.2;
-      r = 0x4f / 255 + u * (1 - 0x4f / 255);
-      g = 0xa9 / 255 + u * (1 - 0xa9 / 255);
-      b = 1;
-    } else if (t <= 0.6) {
-      // White (#ffffff) to light pink (#ffb6c1)
-      const u = (t - 0.4) / 0.2;
-      r = 1;
-      g = 1 - u * (1 - 0xb6 / 255);
-      b = 1 - u * (1 - 0xc1 / 255);
-    } else if (t <= 0.8) {
-      // Light pink (#ffb6c1) to light red (#ff6666)
-      const u = (t - 0.6) / 0.2;
-      r = 1;
-      g = 0xb6 / 255 - u * (0xb6 / 255 - 0x66 / 255);
-      b = 0xc1 / 255 - u * (0xc1 / 255 - 0x66 / 255);
-    } else {
-      // Light red (#ff6666) to blood red (#8b0000)
-      const u = (t - 0.8) / 0.2;
-      r = 1 - u * (1 - 0x8b / 255);
-      g = 0x66 / 255 - u * (0x66 / 255);
-      b = 0x66 / 255 - u * (0x66 / 255);
+  // ---- Colormap System ----
+  let currentColormap = 'viridis'; // Default to viridis (more visually appealing)
+  
+  const COLORMAPS = {
+    viridis: {
+      name: 'Viridis',
+      desc: 'Perceptually uniform, colorblind friendly',
+      cssGradient: 'linear-gradient(to right, #440154, #482878, #3e4a89, #31688e, #26828e, #1f9e89, #35b779, #6ece58, #b5de2b, #fde725)'
+    },
+    plasma: {
+      name: 'Plasma',
+      desc: 'Warm tones, perceptually uniform',
+      cssGradient: 'linear-gradient(to right, #0d0887, #5c01a6, #9c179e, #cc4778, #ed7953, #fdb42f, #f0f921)'
+    },
+    coolwarm: {
+      name: 'Cool-Warm',
+      desc: 'Diverging blue to red',
+      cssGradient: 'linear-gradient(to right, #3b4cc0, #6b8de3, #aac7fd, #dddddd, #f7b89c, #e26952, #b40426)'
+    },
+    rainbow: {
+      name: 'Rainbow',
+      desc: 'Classic rainbow spectrum',
+      cssGradient: 'linear-gradient(to right, #0000ff, #00ffff, #00ff00, #ffff00, #ff8800, #ff0000)'
+    },
+    bwr: {
+      name: 'Blue-White-Red',
+      desc: 'Diverging colormap (original)',
+      cssGradient: 'linear-gradient(to right, #0000ff, #4fa9ff, #ffffff, #ffb6c1, #ff6666, #8b0000)'
     }
-    
+  };
+
+  // Viridis colormap
+  function colorViridis(t) {
+    t = Math.max(0, Math.min(1, t));
+    const c = new THREE.Color();
+    const stops = [
+      { t: 0.0, r: 0x44/255, g: 0x01/255, b: 0x54/255 },
+      { t: 0.25, r: 0x3e/255, g: 0x4a/255, b: 0x89/255 },
+      { t: 0.5, r: 0x26/255, g: 0x82/255, b: 0x8e/255 },
+      { t: 0.75, r: 0x6e/255, g: 0xce/255, b: 0x58/255 },
+      { t: 1.0, r: 0xfd/255, g: 0xe7/255, b: 0x25/255 }
+    ];
+    let i = 0;
+    while (i < stops.length - 1 && stops[i + 1].t < t) i++;
+    const s1 = stops[i], s2 = stops[Math.min(i + 1, stops.length - 1)];
+    const u = (t - s1.t) / (s2.t - s1.t || 1);
+    c.setRGB(s1.r + u * (s2.r - s1.r), s1.g + u * (s2.g - s1.g), s1.b + u * (s2.b - s1.b));
+    return c;
+  }
+
+  // Plasma colormap
+  function colorPlasma(t) {
+    t = Math.max(0, Math.min(1, t));
+    const c = new THREE.Color();
+    const stops = [
+      { t: 0.0, r: 0x0d/255, g: 0x08/255, b: 0x87/255 },
+      { t: 0.25, r: 0x7c/255, g: 0x02/255, b: 0xa8/255 },
+      { t: 0.5, r: 0xcc/255, g: 0x47/255, b: 0x78/255 },
+      { t: 0.75, r: 0xf8/255, g: 0x97/255, b: 0x40/255 },
+      { t: 1.0, r: 0xf0/255, g: 0xf9/255, b: 0x21/255 }
+    ];
+    let i = 0;
+    while (i < stops.length - 1 && stops[i + 1].t < t) i++;
+    const s1 = stops[i], s2 = stops[Math.min(i + 1, stops.length - 1)];
+    const u = (t - s1.t) / (s2.t - s1.t || 1);
+    c.setRGB(s1.r + u * (s2.r - s1.r), s1.g + u * (s2.g - s1.g), s1.b + u * (s2.b - s1.b));
+    return c;
+  }
+
+  // Cool-Warm diverging colormap
+  function colorCoolWarm(t) {
+    t = Math.max(0, Math.min(1, t));
+    const c = new THREE.Color();
+    const stops = [
+      { t: 0.0, r: 0x3b/255, g: 0x4c/255, b: 0xc0/255 },
+      { t: 0.25, r: 0x6b/255, g: 0x8d/255, b: 0xe3/255 },
+      { t: 0.5, r: 0xdd/255, g: 0xdd/255, b: 0xdd/255 },
+      { t: 0.75, r: 0xf7/255, g: 0x89/255, b: 0x5c/255 },
+      { t: 1.0, r: 0xb4/255, g: 0x04/255, b: 0x26/255 }
+    ];
+    let i = 0;
+    while (i < stops.length - 1 && stops[i + 1].t < t) i++;
+    const s1 = stops[i], s2 = stops[Math.min(i + 1, stops.length - 1)];
+    const u = (t - s1.t) / (s2.t - s1.t || 1);
+    c.setRGB(s1.r + u * (s2.r - s1.r), s1.g + u * (s2.g - s1.g), s1.b + u * (s2.b - s1.b));
+    return c;
+  }
+
+  // Rainbow colormap
+  function colorRainbow(t) {
+    t = Math.max(0, Math.min(1, t));
+    const c = new THREE.Color();
+    c.setHSL((1 - t) * 0.7, 1.0, 0.5);
+    return c;
+  }
+
+  // Blue-White-Red (original)
+  function colorBWR(t) {
+    t = Math.max(0, Math.min(1, +t || 0));
+    const c = new THREE.Color();
+    let r, g, b;
+    if (t <= 0.2) {
+      const u = t / 0.2;
+      r = 0 + u * 0x4f / 255; g = 0 + u * 0xa9 / 255; b = 1;
+    } else if (t <= 0.4) {
+      const u = (t - 0.2) / 0.2;
+      r = 0x4f / 255 + u * (1 - 0x4f / 255); g = 0xa9 / 255 + u * (1 - 0xa9 / 255); b = 1;
+    } else if (t <= 0.6) {
+      const u = (t - 0.4) / 0.2;
+      r = 1; g = 1 - u * (1 - 0xb6 / 255); b = 1 - u * (1 - 0xc1 / 255);
+    } else if (t <= 0.8) {
+      const u = (t - 0.6) / 0.2;
+      r = 1; g = 0xb6 / 255 - u * (0xb6 / 255 - 0x66 / 255); b = 0xc1 / 255 - u * (0xc1 / 255 - 0x66 / 255);
+    } else {
+      const u = (t - 0.8) / 0.2;
+      r = 1 - u * (1 - 0x8b / 255); g = 0x66 / 255 - u * (0x66 / 255); b = 0x66 / 255 - u * (0x66 / 255);
+    }
     c.setRGB(r, g, b);
     return c;
   }
+
+  // Get color based on current colormap
+  function colorFromScore(s) {
+    const t = Math.max(0, Math.min(1, +s || 0));
+    switch (currentColormap) {
+      case 'viridis': return colorViridis(t);
+      case 'plasma': return colorPlasma(t);
+      case 'coolwarm': return colorCoolWarm(t);
+      case 'rainbow': return colorRainbow(t);
+      case 'bwr': return colorBWR(t);
+      default: return colorViridis(t);
+    }
+  }
+
+  // Set colormap and update legend
+  function setColormap(name) {
+    if (COLORMAPS[name]) {
+      currentColormap = name;
+      updateLegendColorbar();
+      return true;
+    }
+    return false;
+  }
+
+  // Update legend colorbar based on current colormap
+  function updateLegendColorbar() {
+    const legendBar = document.getElementById('legendBar');
+    if (legendBar && COLORMAPS[currentColormap]) {
+      legendBar.style.background = COLORMAPS[currentColormap].cssGradient;
+    }
+  }
+
+  // Expose colormap functions
+  window.setColormap = setColormap;
+  window.getColormap = () => currentColormap;
+  window.getColormaps = () => Object.keys(COLORMAPS);
 
   // ---- Metric Data Fetching ----
   async function fetchMetricData(metric, frame) {
@@ -196,6 +308,7 @@
     legendTitle.textContent = config.title;
     legendDesc.textContent = config.legendDesc;
     metricInfo.textContent = config.description;
+    updateLegendColorbar();
   }
 
   async function updateTimelineHeatmap() {
@@ -394,6 +507,12 @@
     if (intersects.length > 0) {
       const point = intersects[0].point;
       
+      // Pause playback when clicking on the molecule
+      if (playing) {
+        pausePlayback();
+        status.textContent = 'Paused (clicked molecule)';
+      }
+      
       // Find the closest C-alpha to the clicked point
       let closestIndex = 0;
       let minDist = Infinity;
@@ -583,18 +702,57 @@
   slider.oninput = e => { frameLbl.textContent = e.target.value; loadRibbon(+e.target.value); };
 
   let playing = false, fi = 0, raf;
+  let playbackSpeed = 0.5; // Default to 0.5x speed (slower)
+  let lastFrameTime = 0;
+  const BASE_FRAME_DELAY = 200; // Base delay in ms at 1x speed
+
+  // Pause playback function (exposed for click-to-pause)
+  function pausePlayback() {
+    if (playing) {
+      playing = false;
+      btnPause.disabled = true;
+      btnPlay.disabled = false;
+      if (raf) cancelAnimationFrame(raf);
+    }
+  }
+
+  // Set playback speed (0.25 to 2.0)
+  function setPlaybackSpeed(speed) {
+    playbackSpeed = Math.max(0.25, Math.min(2.0, speed));
+    return playbackSpeed;
+  }
+
   btnPlay.onclick = () => {
     if (playing) return;
-    playing = true; btnPause.disabled = false;
-    const loop = async () => {
+    playing = true;
+    btnPlay.disabled = true;
+    btnPause.disabled = false;
+    lastFrameTime = performance.now();
+    
+    const loop = async (currentTime) => {
       if (!playing) return;
-      await loadRibbon(fi);
-      fi = (fi + 1) % meta.n_frames;
+      
+      const elapsed = currentTime - lastFrameTime;
+      const frameDelay = BASE_FRAME_DELAY / playbackSpeed;
+      
+      if (elapsed >= frameDelay) {
+        await loadRibbon(fi);
+        slider.value = String(fi);
+        frameLbl.textContent = String(fi);
+        fi = (fi + 1) % meta.n_frames;
+        lastFrameTime = currentTime;
+      }
+      
       raf = requestAnimationFrame(loop);
     };
-    loop();
+    raf = requestAnimationFrame(loop);
   };
-  btnPause.onclick = () => { playing = false; btnPause.disabled = true; cancelAnimationFrame(raf); };
+  btnPause.onclick = pausePlayback;
+
+  // Expose playback controls
+  window.pausePlayback = pausePlayback;
+  window.setPlaybackSpeed = setPlaybackSpeed;
+  window.getPlaybackSpeed = () => playbackSpeed;
 
   // ---- Metric selector and timeline handlers ----
   metricSelect.addEventListener('change', async () => {
