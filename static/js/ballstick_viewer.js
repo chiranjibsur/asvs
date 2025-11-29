@@ -8,6 +8,55 @@
   const btnPlay  = document.getElementById('btnPlay');
   const btnPause = document.getElementById('btnPause');
   const metaPill = document.getElementById('metaPill');
+  const metricSelect = document.getElementById('metricSelect');
+  const metricInfo = document.getElementById('metricInfo');
+  const legendTitle = document.getElementById('legendTitle');
+  const legendDesc = document.getElementById('legendDesc');
+  const heatmapCanvas = document.getElementById('heatmapCanvas');
+
+  // ---- Metric Configuration ----
+  const METRIC_CONFIG = {
+    hotspot: {
+      title: "Dynamic Hotspot",
+      description: "Visualize dynamic regions of interest",
+      legendDesc: "High values indicate regions of interest",
+      fetchData: (frame) => fetch(`/api/hotspots/${frame}`).then(r => r.ok ? r.json() : {}),
+      fetchStaticData: null,
+      isFrameDependent: true
+    },
+    anomaly: {
+      title: "Dynamic Anomaly",
+      description: "Unusual motion indicative of functional transitions",
+      legendDesc: "High values indicate anomalous conformations",
+      fetchData: (frame) => fetch(`/api/metrics/anomaly/${frame}`).then(r => r.ok ? r.json() : {}),
+      fetchStaticData: null,
+      isFrameDependent: true
+    },
+    rmsf: {
+      title: "RMSF (Flexibility)",
+      description: "Root Mean Square Fluctuation - inherent flexibility",
+      legendDesc: "High values indicate flexible regions",
+      fetchData: null,
+      fetchStaticData: () => fetch('/api/rmsf').then(r => r.ok ? r.json() : {normalized: {}}),
+      isFrameDependent: false
+    },
+    tica: {
+      title: "tICA Importance",
+      description: "Contribution to slow collective motions",
+      legendDesc: "High values indicate importance in collective dynamics",
+      fetchData: null,
+      fetchStaticData: () => fetch('/api/metrics/tica_importance').then(r => r.ok ? r.json() : {normalized: {}}),
+      isFrameDependent: false
+    }
+  };
+
+  let currentMetric = 'hotspot';
+  let metricsCache = {
+    hotspot: {},
+    anomaly: {},
+    rmsf: null,
+    tica: null
+  };
 
   // ---- meta ----
   const meta = await (await fetch('/api/trajectory/meta')).json();
@@ -979,21 +1028,131 @@
     return headers + rows;
   }
 
-  // ---- hotspot coloring (strict BWR, no green) ----
+  // ---- Enhanced diverging colormap ----
   function colorBWR (t) {
-    // t in [0,1] → blue(0,0,1) → white(1,1,1) → red(1,0,0)
+    // Enhanced diverging colormap: deep blue → light blue → white → pink → light red → blood red
+    // Gradient stops: #0000ff → #4fa9ff → #ffffff → #ffb6c1 → #ff6666 → #8b0000
     t = Math.max(0, Math.min(1, t));
     const c = new THREE.Color();
-    if (t <= 0.5) {
-      // 0..0.5 : blue -> white
-      const k = t / 0.5;            // 0..1
-      c.setRGB(k, k, 1.0);
+    
+    let r, g, b;
+    
+    if (t <= 0.2) {
+      // Deep blue (#0000ff) to light blue (#4fa9ff)
+      const u = t / 0.2;
+      r = 0 + u * 0x4f / 255;
+      g = 0 + u * 0xa9 / 255;
+      b = 1;
+    } else if (t <= 0.4) {
+      // Light blue (#4fa9ff) to white (#ffffff)
+      const u = (t - 0.2) / 0.2;
+      r = 0x4f / 255 + u * (1 - 0x4f / 255);
+      g = 0xa9 / 255 + u * (1 - 0xa9 / 255);
+      b = 1;
+    } else if (t <= 0.6) {
+      // White (#ffffff) to light pink (#ffb6c1)
+      const u = (t - 0.4) / 0.2;
+      r = 1;
+      g = 1 - u * (1 - 0xb6 / 255);
+      b = 1 - u * (1 - 0xc1 / 255);
+    } else if (t <= 0.8) {
+      // Light pink (#ffb6c1) to light red (#ff6666)
+      const u = (t - 0.6) / 0.2;
+      r = 1;
+      g = 0xb6 / 255 - u * (0xb6 / 255 - 0x66 / 255);
+      b = 0xc1 / 255 - u * (0xc1 / 255 - 0x66 / 255);
     } else {
-      // 0.5..1 : white -> red
-      const k = (t - 0.5) / 0.5;    // 0..1
-      c.setRGB(1.0, 1.0 - 0.85 * k, 1.0 - k);
+      // Light red (#ff6666) to blood red (#8b0000)
+      const u = (t - 0.8) / 0.2;
+      r = 1 - u * (1 - 0x8b / 255);
+      g = 0x66 / 255 - u * (0x66 / 255);
+      b = 0x66 / 255 - u * (0x66 / 255);
     }
+    
+    c.setRGB(r, g, b);
     return c;
+  }
+
+  // ---- Metric Data Fetching ----
+  async function fetchMetricData(metric, frame) {
+    const config = METRIC_CONFIG[metric];
+    
+    if (!config.isFrameDependent) {
+      // Static data (RMSF, tICA) - load once
+      if (!metricsCache[metric]) {
+        const data = await config.fetchStaticData();
+        metricsCache[metric] = data.normalized || data;
+      }
+      return metricsCache[metric];
+    } else {
+      // Frame-dependent data (hotspot, anomaly) - cache per frame
+      if (!metricsCache[metric][frame]) {
+        const data = await config.fetchData(frame);
+        metricsCache[metric][frame] = data;
+      }
+      return metricsCache[metric][frame];
+    }
+  }
+
+  function updateLegend() {
+    const config = METRIC_CONFIG[currentMetric];
+    legendTitle.textContent = config.title;
+    legendDesc.textContent = config.legendDesc;
+    metricInfo.textContent = config.description;
+  }
+
+  async function updateTimelineHeatmap() {
+    const ctx = heatmapCanvas.getContext('2d');
+    const width = heatmapCanvas.width = heatmapCanvas.clientWidth;
+    const height = heatmapCanvas.height = heatmapCanvas.clientHeight;
+    
+    const config = METRIC_CONFIG[currentMetric];
+    
+    if (!config.isFrameDependent) {
+      // For static metrics, show distribution across residues
+      const data = await fetchMetricData(currentMetric, 0);
+      const values = Object.values(data);
+      
+      // Draw simple bar chart
+      const barWidth = width / values.length;
+      values.forEach((val, idx) => {
+        const col = colorBWR(val);
+        ctx.fillStyle = `rgb(${col.r*255}, ${col.g*255}, ${col.b*255})`;
+        ctx.fillRect(idx * barWidth, 0, barWidth, height);
+      });
+      
+    } else {
+      // For frame-dependent metrics, show max value per frame
+      const frameScores = [];
+      for (let f = 0; f < meta.n_frames; f++) {
+        try {
+          const data = await fetchMetricData(currentMetric, f);
+          const values = Object.values(data);
+          const maxVal = values.length > 0 ? Math.max(...values) : 0;
+          frameScores.push(maxVal);
+        } catch (e) {
+          frameScores.push(0);
+        }
+      }
+      
+      // Draw heatmap
+      const barWidth = width / meta.n_frames;
+      frameScores.forEach((score, idx) => {
+        const col = colorBWR(score);
+        ctx.fillStyle = `rgb(${col.r*255}, ${col.g*255}, ${col.b*255})`;
+        ctx.fillRect(idx * barWidth, 0, barWidth, height);
+      });
+    }
+    
+    // Draw current frame indicator
+    const currentFrame = parseInt(slider.value, 10);
+    const markerX = (currentFrame / meta.n_frames) * width;
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(markerX, 0);
+    ctx.lineTo(markerX, height);
+    ctx.stroke();
   }
 
   async function fetchHotspots (frame) {
@@ -1006,14 +1165,14 @@
     }
   }
 
-  async function applyHotspotColors (frame) {
-    const hs = await fetchHotspots(frame) || {};
+  async function applyMetricColors(frame) {
+    const metricData = await fetchMetricData(currentMetric, frame);
     // make dense residue-indexed scores
     const scores = new Float32Array(meta.n_residues);
-    for (const k in hs) {
+    for (const k in metricData) {
       const idx = parseInt(k, 10);
       if (!Number.isNaN(idx) && idx >= 0 && idx < scores.length) {
-        scores[idx] = +hs[k];
+        scores[idx] = +metricData[k];
       }
     }
     for (let i = 0; i < atomMeshes.length; i++) {
@@ -1021,11 +1180,20 @@
       const t = scores[rIdx] || 0.0;      // 0..1
       atomMeshes[i].material.color.copy(colorBWR(t));
     }
+    // Update timeline
+    await updateTimelineHeatmap();
+  }
+
+  async function applyHotspotColors (frame) {
+    // Legacy function - now redirects to applyMetricColors
+    await applyMetricColors(frame);
   }
 
   // ---- initial placement ----
   updateAtoms(xyz0);
-  await applyHotspotColors(0);
+  await applyMetricColors(0);
+  updateLegend();
+  await updateTimelineHeatmap();
 
   // ---- Atom selection functions ----
   function onAtomClick(event) {
@@ -1103,6 +1271,56 @@
     }
   }
 
+  // Helper functions to generate detailed explanations for metric values
+  // Based on structural biology principles and MD analysis best practices
+  function getHotspotExplanation(value) {
+    if (value < 0.2) {
+      return `<strong>Low Activity Region</strong><br>This residue shows minimal dynamic activity in this frame. Typically indicates stable structural regions.<br><em style="font-size: 10px; opacity: 0.7;">Interpretation: Low hotspot scores suggest residues maintaining structural stability.</em>`;
+    } else if (value < 0.5) {
+      return `<strong>Moderate Activity</strong><br>This residue exhibits moderate dynamic behavior. May be involved in conformational flexibility or peripheral functional regions.<br><em style="font-size: 10px; opacity: 0.7;">Interpretation: Intermediate scores often found at domain interfaces or flexible loops.</em>`;
+    } else if (value < 0.8) {
+      return `<strong>High Activity Region</strong><br>This residue is highly dynamic and potentially functionally important. Common in binding sites, catalytic regions, or allosteric pathways.<br><em style="font-size: 10px; opacity: 0.7;">Interpretation: High scores correlate with functional hotspots (Ref: ensemble-anomaly-maps pipeline).</em>`;
+    } else {
+      return `<strong>Critical Hotspot</strong><br>This residue shows exceptional activity - likely central to protein function. May indicate active sites, critical binding interfaces, or key hinge regions.<br><em style="font-size: 10px; opacity: 0.7;">Interpretation: Extreme scores (>0.8) warrant detailed investigation for functional significance.</em>`;
+    }
+  }
+
+  function getAnomalyExplanation(value) {
+    if (value < 0.2) {
+      return `<strong>Normal Conformation</strong><br>This residue adopts a typical conformation consistent with equilibrium dynamics. No unusual structural deviations detected by the ML pipeline.<br><em style="font-size: 10px; opacity: 0.7;">Method: Anomaly detection identifies deviations from typical conformational ensemble.</em>`;
+    } else if (value < 0.5) {
+      return `<strong>Minor Deviation</strong><br>Slight deviation from typical behavior. Could represent thermal fluctuations or minor conformational sampling within normal dynamics.<br><em style="font-size: 10px; opacity: 0.7;">Note: Moderate anomalies may reflect transient conformational states.</em>`;
+    } else if (value < 0.8) {
+      return `<strong>Unusual Conformation</strong><br>Significant anomalous behavior detected! May be exploring rare conformational states important for function, such as transition states or induced-fit conformations.<br><em style="font-size: 10px; opacity: 0.7;">Significance: High anomaly scores can indicate functionally relevant rare events.</em>`;
+    } else {
+      return `<strong>Highly Anomalous!</strong><br>Extremely unusual conformation detected by ML analysis. Possible interpretations: (1) functional transition state, (2) rare but biologically relevant conformation, (3) critical dynamic event.<br><em style="font-size: 10px; opacity: 0.7;">⚠️ Extreme anomalies should be validated with additional analysis.</em>`;
+    }
+  }
+
+  function getRMSFExplanation(value) {
+    if (value < 0.2) {
+      return `<strong>Rigid/Stable Region</strong><br>Highly constrained with minimal fluctuation. Characteristic of structural core residues, secondary structure elements (α-helix/β-sheet), or residues critical for architecture.<br><em style="font-size: 10px; opacity: 0.7;">RMSF: Root Mean Square Fluctuation measures time-averaged positional variance.</em>`;
+    } else if (value < 0.5) {
+      return `<strong>Moderate Flexibility</strong><br>Shows moderate fluctuations with some conformational freedom. Typical of residues in stable loops or at secondary structure boundaries.<br><em style="font-size: 10px; opacity: 0.7;">Interpretation: Intermediate RMSF common in semi-flexible regions.</em>`;
+    } else if (value < 0.8) {
+      return `<strong>Flexible Region</strong><br>High flexibility with significant fluctuations. Common in surface loops, linker regions, or areas involved in conformational changes. May be functionally important for binding/catalysis.<br><em style="font-size: 10px; opacity: 0.7;">Note: High RMSF correlates with entropic contributions to binding (thermodynamics).</em>`;
+    } else {
+      return `<strong>Extremely Flexible</strong><br>Very high flexibility - likely in highly mobile regions (terminal ends, long loops, or intrinsically disordered regions). May be critical for adaptive functions.<br><em style="font-size: 10px; opacity: 0.7;">⚠️ Extreme RMSF (>0.8) may indicate poor sampling or genuine disorder.</em>`;
+    }
+  }
+
+  function getTICAExplanation(value) {
+    if (value < 0.2) {
+      return `<strong>Low Collective Motion Role</strong><br>Minimal contribution to slowest collective motions. Likely moves independently or participates in fast, localized fluctuations rather than large-scale changes.<br><em style="font-size: 10px; opacity: 0.7;">tICA: Time-lagged Independent Component Analysis identifies slow collective modes.</em>`;
+    } else if (value < 0.5) {
+      return `<strong>Moderate Contribution</strong><br>Moderate involvement in collective dynamics. Participates in some large-scale motions but not a primary driver of slow conformational transitions.<br><em style="font-size: 10px; opacity: 0.7;">Method: tICA importance reflects contribution to slowest eigenvectors.</em>`;
+    } else if (value < 0.8) {
+      return `<strong>Important for Collective Motion</strong><br>Significant contribution to slow, collective protein motions! Likely involved in functionally relevant changes such as domain movements or allosteric transitions.<br><em style="font-size: 10px; opacity: 0.7;">Significance: High tICA scores indicate residues driving functional dynamics.</em>`;
+    } else {
+      return `<strong>Critical Driver of Dynamics</strong><br>Key player in slowest collective motions! Essential for large-scale conformational changes - likely critical for biological function, allosteric regulation, or structural transitions.<br><em style="font-size: 10px; opacity: 0.7;">⚠️ Highest tICA scores identify allosteric networks and functional hinges.</em>`;
+    }
+  }
+
   async function displayAtomInfo(atomIndex) {
     try {
       // Get atom metadata
@@ -1130,24 +1348,25 @@
       });
       const coords = frameData.xyz[atomIndex];
       
-      // Fetch hotspot data for this residue
-      const hotspotData = await fetch(`/api/hotspots/${currentFrame}`).then(r => {
-        if (!r.ok) throw new Error('Failed to fetch hotspot data');
-        return r.json();
-      });
-      const hotspotValue = hotspotData[residue.index] || 0;
+      // Fetch all metric data for this residue
+      const hotspotData = await fetchMetricData('hotspot', currentFrame);
+      const anomalyData = await fetchMetricData('anomaly', currentFrame);
+      const rmsfData_local = await fetchMetricData('rmsf', 0);
+      const ticaData = await fetchMetricData('tica', 0);
       
-      // Get RMSF value
-      let rmsfHTML = '';
-      if (rmsfData && rmsfData.normalized) {
-        const rmsfValue = rmsfData.normalized[String(residueIndex)] || 0;
-        const actualRMSF = rmsfData.min + (rmsfValue * (rmsfData.max - rmsfData.min));
-        rmsfHTML = `
-          <div class="info-section">
-            <strong>RMSF (Flexibility):</strong> ${actualRMSF.toFixed(2)} Å
-          </div>
-        `;
-      }
+      const residueIdx = String(residue.index);
+      const resnumStr = String(residue.resnum);
+      
+      const hotspotValue = hotspotData[resnumStr] || hotspotData[residueIdx] || 0;
+      const anomalyValue = anomalyData[resnumStr] || anomalyData[residueIdx] || 0;
+      const rmsfValue = rmsfData_local[residueIdx] || 0;
+      const ticaValue = ticaData[residueIdx] || 0;
+      
+      // Generate detailed explanations for each metric
+      const hotspotExplanation = getHotspotExplanation(hotspotValue);
+      const anomalyExplanation = getAnomalyExplanation(anomalyValue);
+      const rmsfExplanation = getRMSFExplanation(rmsfValue);
+      const ticaExplanation = getTICAExplanation(ticaValue);
       
       // Get contacts for this residue
       let contactsHTML = '';
@@ -1171,12 +1390,12 @@
         }
       }
       
-      // Build info HTML
+      // Build info HTML with scientific explanations
       const infoHTML = `
         <div class="atom-info-panel">
-          <h3>Atom Information</h3>
+          <h3>Residue Metrics Analysis</h3>
           <div class="info-section">
-            <strong>Atom:</strong> ${atom.element} (Index: ${atomIndex})
+            <strong>Atom Index:</strong> ${atomIndex}
           </div>
           <div class="info-section">
             <strong>Residue:</strong> ${residue.resname}${residue.resnum} (Chain ${residue.chain})
@@ -1187,11 +1406,26 @@
             Y: ${coords[1].toFixed(2)} Å<br>
             Z: ${coords[2].toFixed(2)} Å
           </div>
-          <div class="info-section">
-            <strong>Hotspot Score:</strong> ${hotspotValue.toFixed(3)}
+          <div class="info-section" style="border-top: 1px solid #2b2f3a; padding-top: 10px; margin-top: 10px;">
+            <strong>🔴 Dynamic Hotspot: ${hotspotValue.toFixed(3)}</strong><br>
+            <span style="font-size: 11px; color: #9aa3b2; line-height: 1.4;">${hotspotExplanation}</span>
           </div>
-          ${rmsfHTML}
+          <div class="info-section">
+            <strong>🟠 Dynamic Anomaly: ${anomalyValue.toFixed(3)}</strong><br>
+            <span style="font-size: 11px; color: #9aa3b2; line-height: 1.4;">${anomalyExplanation}</span>
+          </div>
+          <div class="info-section">
+            <strong>🟡 RMSF (Flexibility): ${rmsfValue.toFixed(3)}</strong><br>
+            <span style="font-size: 11px; color: #9aa3b2; line-height: 1.4;">${rmsfExplanation}</span>
+          </div>
+          <div class="info-section">
+            <strong>🟢 tICA Importance: ${ticaValue.toFixed(3)}</strong><br>
+            <span style="font-size: 11px; color: #9aa3b2; line-height: 1.4;">${ticaExplanation}</span>
+          </div>
           ${contactsHTML}
+          <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #2b2f3a; font-size: 10px; color: #7a8394; line-height: 1.4;">
+            <strong>ℹ️ Scientific Note:</strong> These interpretations are based on established structural biology principles and typical value ranges. Individual proteins may vary. For definitive functional conclusions, correlate with experimental data and structural context.
+          </div>
           <button id="closeInfoBtn" class="close-btn">Close</button>
         </div>
       `;
@@ -1266,7 +1500,7 @@
     if (showRMSF && rmsfData) {
       applyRMSFColors();
     } else {
-      await applyHotspotColors(idx);
+      await applyMetricColors(idx);
     }
     status.textContent = `frame ${idx} loaded`;
   }
@@ -1297,6 +1531,24 @@
     btnPause.disabled = true;
     if (rafId) cancelAnimationFrame(rafId);
   };
+
+  // ---- Metric selector and timeline handlers ----
+  metricSelect.addEventListener('change', async () => {
+    currentMetric = metricSelect.value;
+    updateLegend();
+    const currentFrame = parseInt(slider.value, 10);
+    await applyMetricColors(currentFrame);
+  });
+
+  heatmapCanvas.addEventListener('click', (e) => {
+    const rect = heatmapCanvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const fraction = x / rect.width;
+    const targetFrame = Math.floor(fraction * meta.n_frames);
+    slider.value = String(targetFrame);
+    frameLbl.textContent = String(targetFrame);
+    loadFrame(targetFrame);
+  });
 
   // Expose functions to global scope for button handlers
   window.toggleRMSFColoring = toggleRMSFColoring;
