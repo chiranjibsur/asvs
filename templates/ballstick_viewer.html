@@ -510,10 +510,10 @@
       
       <div class="context-section">
         <h4>📚 Metric Definitions</h4>
-        <div style="margin-top:8px;">
-          <p><strong style="color:#ff6666;">Dynamic Anomaly:</strong> Indicates residues undergoing statistically rare transitions detected by ML analysis.</p>
-          <p style="margin-top:6px;"><strong style="color:#ffcc00;">RMSF:</strong> Root Mean Square Fluctuation - quantifies atomic flexibility relative to the average structure.</p>
-          <p style="margin-top:6px;"><strong style="color:#66ff66;">tICA Importance:</strong> Highlights residues contributing to slow collective motions identified via time-lagged independent component analysis.</p>
+        <div style="margin-top:8px;" id="metricDefinitions">
+          <p><strong style="color:#ff9933;">Dynamic Anomaly:</strong> Detects residues adopting statistically rare conformations using machine learning-based anomaly detection.</p>
+          <p style="margin-top:6px;"><strong style="color:#ffcc00;">RMSF:</strong> Root Mean Square Fluctuation - quantifies time-averaged positional variance of each residue relative to the mean structure.</p>
+          <p style="margin-top:6px;"><strong style="color:#66ff66;">tICA Importance:</strong> Time-lagged Independent Component Analysis importance - identifies residues contributing to the slowest collective motions.</p>
         </div>
       </div>
     </div>
@@ -521,6 +521,7 @@
 
   <script src="/static/lib/three.min.js"></script>
   <script src="/static/lib/OrbitControls.js"></script>
+  <script src="/static/js/utils/scientific_context.js"></script>
   <script src="/static/js/ballstick_viewer.js?v=1762854294"></script>
   <script>
     // Add button event listeners
@@ -680,70 +681,10 @@
       }
     });
 
-    // Scientific Context Panel
-    const METRIC_CONTEXTS = {
-      hotspot: {
-        icon: '#ff6666',
-        title: 'Dynamic Hotspot',
-        measures: 'Identifies residues undergoing statistically significant dynamic changes or transitions during the simulation.',
-        biological: 'High hotspot values often indicate functionally important regions such as active sites, allosteric sites, or regions undergoing conformational changes. These residues may be critical for protein function.',
-        interpretation: 'Peak values (red) suggest residues that are dynamically active and potentially involved in biological function. Low values (blue) indicate stable structural regions.'
-      },
-      anomaly: {
-        icon: '#ff9933',
-        title: 'Dynamic Anomaly',
-        measures: 'Detects residues adopting statistically rare conformations using machine learning-based anomaly detection.',
-        biological: 'Anomalous conformations may represent functional transition states, induced-fit binding events, or rare but biologically relevant conformational changes.',
-        interpretation: 'High anomaly scores (red) indicate conformations that deviate significantly from the equilibrium ensemble. These may warrant further investigation for functional significance.'
-      },
-      rmsf: {
-        icon: '#ffcc00',
-        title: 'RMSF (Flexibility)',
-        measures: 'Root Mean Square Fluctuation - quantifies time-averaged positional variance of each residue relative to the mean structure.',
-        biological: 'Flexible regions (high RMSF) often correspond to loop regions, linkers, or functionally important dynamic elements. Rigid regions (low RMSF) typically form the structural core.',
-        interpretation: 'Red indicates highly flexible residues, often in loops or termini. Blue indicates rigid residues, typically in alpha-helices or beta-sheets.'
-      },
-      tica: {
-        icon: '#66ff66',
-        title: 'tICA Importance',
-        measures: 'Time-lagged Independent Component Analysis importance - identifies residues contributing to the slowest collective motions.',
-        biological: 'Residues with high tICA importance drive large-scale conformational changes and may be involved in allosteric regulation, domain movements, or functional transitions.',
-        interpretation: 'High values (red) identify residues at the core of collective dynamics. These are often allosteric hotspots or hinge regions.'
-      }
-    };
-
-    function updateScientificContext(metric) {
-      const ctx = METRIC_CONTEXTS[metric];
-      if (!ctx) return;
-      
-      const contextSection = document.getElementById('currentMetricContext');
-      contextSection.innerHTML = `
-        <h4><span class="metric-icon" style="background:${ctx.icon};"></span>${ctx.title}</h4>
-        <p><strong>What it measures:</strong> ${ctx.measures}</p>
-        <p style="margin-top:8px;"><strong>Biological meaning:</strong> ${ctx.biological}</p>
-        <p style="margin-top:8px;"><strong>Interpretation:</strong> ${ctx.interpretation}</p>
-      `;
+    // Initialize Scientific Context Panel using shared module
+    if (window.ScientificContext) {
+      window.ScientificContext.initScientificContextPanel();
     }
-
-    // Scientific Context Panel toggle
-    document.getElementById('scientificContextToggle').addEventListener('click', () => {
-      const panel = document.getElementById('scientificContextPanel');
-      const toggle = document.getElementById('scientificContextToggle');
-      panel.classList.toggle('open');
-      toggle.classList.toggle('open');
-    });
-
-    document.getElementById('closeContextPanel').addEventListener('click', () => {
-      const panel = document.getElementById('scientificContextPanel');
-      const toggle = document.getElementById('scientificContextToggle');
-      panel.classList.remove('open');
-      toggle.classList.remove('open');
-    });
-
-    // Update context when metric changes
-    document.getElementById('metricSelect').addEventListener('change', (e) => {
-      updateScientificContext(e.target.value);
-    });
   </script>
 </body>
 </html>
