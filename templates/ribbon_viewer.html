@@ -246,6 +246,23 @@
       <span id="frameLbl" style="min-width:28px;text-align:right;font:12px/1 monospace">0</span>
       <button class="btn" id="btnPlay">Play</button>
       <button class="btn" id="btnPause" disabled>Pause</button>
+      <!-- Playback Speed Control -->
+      <div style="display:flex;gap:6px;align-items:center">
+        <span style="opacity:.75;font:11px/1 monospace">Speed:</span>
+        <input id="speedSlider" type="range" min="0.25" max="2" step="0.25" value="0.5" style="width:80px;" />
+        <span id="speedLbl" style="min-width:32px;font:11px/1 monospace">0.5x</span>
+      </div>
+    </div>
+    <!-- Colormap Selector -->
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px">
+      <label for="colormapSelect" style="font:12px/1 monospace;color:#c9ceda;">Colormap:</label>
+      <select id="colormapSelect" style="padding:6px 10px;background:#1a1c22;color:#e9eaee;border:1px solid #2b2f3a;border-radius:6px;font:12px/1 monospace;cursor:pointer;">
+        <option value="viridis">Viridis (colorblind safe)</option>
+        <option value="plasma">Plasma (warm)</option>
+        <option value="coolwarm">Cool-Warm (diverging)</option>
+        <option value="rainbow">Rainbow</option>
+        <option value="bwr">Blue-White-Red (original)</option>
+      </select>
       <button class="btn" id="btnToggleRMSF">Show RMSF</button>
       <button class="btn" id="btnToggleClipping">Enable Clipping</button>
       <button class="btn" id="btnExportPNG">Export PNG</button>
@@ -379,6 +396,27 @@
     // Phase 3: Export PNG
     document.getElementById('btnExportPNG').addEventListener('click', () => {
       window.exportScreenshot('png');
+    });
+
+    // Playback speed control
+    document.getElementById('speedSlider').addEventListener('input', (e) => {
+      const speed = parseFloat(e.target.value);
+      document.getElementById('speedLbl').textContent = speed + 'x';
+      if (window.setPlaybackSpeed) {
+        window.setPlaybackSpeed(speed);
+      }
+    });
+
+    // Colormap selector
+    document.getElementById('colormapSelect').addEventListener('change', async (e) => {
+      const colormap = e.target.value;
+      if (window.setColormap) {
+        window.setColormap(colormap);
+        // Reload current frame to apply new colormap
+        if (window.reloadCurrentFrame) {
+          await window.reloadCurrentFrame();
+        }
+      }
     });
 
     // Initialize Scientific Context Panel using shared module
