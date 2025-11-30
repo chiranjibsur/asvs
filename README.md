@@ -2,122 +2,362 @@
 
 **Muskan Aneja's Capstone Project**
 
-## Project Overview
+A web-based platform for interactive visualization of protein structures and molecular dynamics trajectories.
 
-Molecular Visualizer is an interactive web-based platform for visualizing protein structures from Protein Data Bank (PDB) files. This tool allows researchers, students, and molecular biology enthusiasts to explore molecular structures in both 2D and 3D representations with various visualization styles and color mapping options.
+---
 
-## Key Features
+## 📋 Table of Contents
 
-- **3D Interactive Visualization**: Rotate, zoom, and pan to explore molecular structures from any angle
-- **Multiple Visualization Styles**: 
-  - Ball and Stick model 
-  - Protein Ribbon model
-- **Diverse Color Mapping Options**:
-  - Element-based coloring (CPK coloring)
-  - B-factor (temperature) coloring
-  - Residue-based coloring
-- **Interactive Atom Information**: Hover over atoms to view detailed information (element, residue, chain, B-factor, coordinates)
-- **2D Projections**: Top view (X-Y plane) and side view (X-Z plane) for complementary visualization
-- **File Upload**: Upload and visualize your own PDB files
-- **Responsive Design**: Works on desktop and mobile devices
+- [Quick Start](#-quick-start)
+- [Prerequisites](#-prerequisites)
+- [Installation](#-installation)
+- [Running the Application](#-running-the-application)
+- [Viewer Modes](#-viewer-modes)
+- [Usage Guide](#-usage-guide)
+- [Configuration](#-configuration)
+- [Troubleshooting](#-troubleshooting)
+- [Project Structure](#-project-structure)
+- [License](#-license)
 
-## Technologies Used
+---
 
-- **Backend**: Flask (Python)
-- **Frontend**: 
-  - Three.js for 3D rendering
-  - Vue.js and Vuetify for UI components
-  - HTML5 Canvas for 2D visualization
-- **Data Processing**: Custom PDB file parsing algorithms
-- **Containerization**: Docker for easy deployment
+## 🚀 Quick Start
 
-## How to Run the Application
+```bash
+# Clone the repository
+git clone https://github.com/chiranjibsur/asvs.git
+cd asvs
 
-### Method 1: Using Python directly
+# Install dependencies
+pip install -e .
 
-#### Windows:
-1. Make sure Python 3.6+ is installed
-2. Double-click on `run.bat` or open a command prompt and run:
+# Run the application
+python app.py
+```
+
+Then open http://localhost:5000 in your browser.
+
+---
+
+## ✅ Prerequisites
+
+Before you begin, ensure you have the following installed:
+
+| Requirement | Version | Check Command |
+|-------------|---------|---------------|
+| Python | 3.6 or higher | `python --version` or `python3 --version` |
+| pip | Latest | `pip --version` |
+| Modern Web Browser | Chrome, Firefox, Safari, or Edge with WebGL support | - |
+
+### Optional (for advanced features):
+
+| Requirement | Purpose |
+|-------------|---------|
+| [Docker](https://www.docker.com/get-started) | Containerized deployment |
+| [MDAnalysis](https://www.mdanalysis.org/) | Molecular dynamics trajectory support |
+
+---
+
+## 📦 Installation
+
+### Option 1: Quick Install (Recommended)
+
+**Windows:**
+```batch
+run.bat
+```
+
+**Mac/Linux:**
+```bash
+chmod +x run.sh
+./run.sh
+```
+
+This will:
+- Create a virtual environment
+- Install all dependencies
+- Download example PDB file
+- Start the application
+
+### Option 2: Manual Install
+
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/chiranjibsur/asvs.git
+   cd asvs
    ```
-   run.bat
-   ```
-3. Open http://localhost:5000 in your browser
 
-#### Mac/Linux:
-1. Make sure Python 3.6+ is installed
-2. Open a terminal and run:
+2. **Create a virtual environment (recommended):**
+   ```bash
+   python -m venv venv
+   
+   # Activate on Windows:
+   venv\Scripts\activate
+   
+   # Activate on Mac/Linux:
+   source venv/bin/activate
    ```
-   chmod +x run.sh
-   ./run.sh
-   ```
-3. Open http://localhost:5000 in your browser
 
-### Method 2: Using Docker
-
-1. Make sure Docker is installed on your system
-2. Build the Docker image:
-   ```
-   docker build -t molecular-visualizer .
-   ```
-3. Run the Docker container:
-   ```
-   docker run -p 5000:5000 molecular-visualizer
-   ```
-4. Open http://localhost:5000 in your browser
-
-### Method 3: Using Python manually
-
-1. Install the required dependencies:
-   ```
+3. **Install dependencies:**
+   ```bash
    pip install -e .
    ```
-2. Run the application:
+
+   For trajectory viewer features, also install:
+   ```bash
+   pip install MDAnalysis
    ```
-   python app.py
+
+4. **Verify installation:**
+   ```bash
+   python -c "import flask, numpy; print('✓ Dependencies installed successfully!')"
    ```
-3. Open http://localhost:5000 in your browser
 
-## How to Use
+### Option 3: Docker Install
 
-1. Once the application is running, open http://localhost:5000 in your browser
-2. Click "Load Example Structure" or upload your own PDB file
-3. Use mouse controls to interact with the 3D view:
-   - Left-click + drag: Rotate the molecule
-   - Right-click + drag: Pan the view
-   - Scroll wheel: Zoom in/out
-4. Try different visualization styles and color mappings using the dropdown options
-5. Hover over atoms to see detailed information
-6. Click the fullscreen button for a more immersive experience
+```bash
+# Build the image
+docker build -t molecular-visualizer .
 
-## Future Enhancements
+# Run the container
+docker run -p 5000:5000 molecular-visualizer
+```
 
-- Support for more visualization styles (Space-filling, Wireframe)
-- Molecular surface visualization
-- Distance and angle measurement tools
-- Ligand highlighting
-- Animation capabilities for dynamics visualization
-- Export options for images and 3D models
+---
 
-## License
+## ▶️ Running the Application
+
+Start the server:
+
+```bash
+python app.py
+```
+
+You should see:
+```
+ * Running on http://127.0.0.1:5000
+ * Restarting with stat
+ * Debugger is active!
+```
+
+Open your browser and navigate to: **http://localhost:5000**
+
+---
+
+## 🔬 Viewer Modes
+
+The application offers three visualization modes:
+
+| Mode | URL | Description |
+|------|-----|-------------|
+| **Points Viewer** | `/viewer` | Lightweight point cloud visualization |
+| **Ball-and-Stick** | `/viewer/ballstick` | Atoms as spheres, bonds as cylinders |
+| **Ribbon Viewer** | `/viewer/ribbon` | Protein secondary structure visualization |
+
+### Features by Mode:
+
+- **Points Viewer:** RMSF display, frame animation
+- **Ball-and-Stick:** RMSF, contacts network, top contacts, clipping planes, distance measurement, export
+- **Ribbon Viewer:** RMSF, clipping planes, secondary structure coloring, export PNG
+
+---
+
+## 🖱️ Usage Guide
+
+### Mouse Controls
+
+| Action | Control |
+|--------|---------|
+| Rotate | Left-click + drag |
+| Pan | Right-click + drag |
+| Zoom | Scroll wheel |
+
+### Keyboard Shortcuts
+
+| Key | Action |
+|-----|--------|
+| `Space` | Play/Pause animation |
+| `←` / `→` | Previous/Next frame |
+
+### Working with Your Own Data
+
+1. **PDB Files:** Place your `.pdb` file in `static/examples/` or use the upload feature
+2. **Trajectory Data:** Place your `.pdb` and `.xtc` files in the `viewer/` directory
+
+---
+
+## ⚙️ Configuration
+
+### Environment Variables
+
+Configure custom data paths using environment variables:
+
+```bash
+# Trajectory files
+export ASVS_PDB="/path/to/your/topology.pdb"
+export ASVS_XTC="/path/to/your/trajectory.xtc"
+
+# Metrics data
+export ASVS_HOTSPOTS_RES="/path/to/hotspots_residue.json"
+export ASVS_RMSF="/path/to/rmsf_residue.json"
+export ASVS_CONTACTS="/path/to/contacts.json"
+export ASVS_ANOMALY="/path/to/anomaly_residue.json"
+export ASVS_TICA="/path/to/tica_importance.json"
+```
+
+### Default Data Locations
+
+| File | Default Path | Description |
+|------|--------------|-------------|
+| Topology | `viewer/topology.pdb` | Molecular structure |
+| Trajectory | `viewer/trajectory.xtc` | MD trajectory frames |
+| Hotspots | `viewer/hotspots_residue.json` | Per-residue hotspot values |
+| RMSF | `viewer/rmsf_residue.json` | Flexibility data |
+| Contacts | `viewer/contacts.json` | Residue contact network |
+
+---
+
+## 🔧 Troubleshooting
+
+### Common Issues
+
+<details>
+<summary><strong>❌ "Python is not installed or not in PATH"</strong></summary>
+
+**Solution:** Install Python 3.6+ from https://python.org and ensure it's added to your system PATH.
+
+```bash
+# Verify installation
+python --version  # Should show Python 3.6 or higher
+```
+</details>
+
+<details>
+<summary><strong>❌ "Port 5000 is already in use"</strong></summary>
+
+**Solution:** Either stop the other application using port 5000, or run on a different port:
+
+```bash
+# Find what's using port 5000 (Mac/Linux)
+lsof -i :5000
+
+# Or run on a different port by editing app.py
+# Change: app.run(host="127.0.0.1", port=5000)
+# To:     app.run(host="127.0.0.1", port=5001)
+```
+</details>
+
+<details>
+<summary><strong>❌ "ModuleNotFoundError: No module named 'flask'"</strong></summary>
+
+**Solution:** Install dependencies:
+
+```bash
+pip install -e .
+# Or manually:
+pip install flask numpy
+```
+</details>
+
+<details>
+<summary><strong>❌ "Trajectory files not found"</strong></summary>
+
+**Solution:** Ensure the required files exist in the `viewer/` directory:
+
+```bash
+ls viewer/
+# Should show: topology.pdb, trajectory.xtc, hotspots_residue.json
+```
+
+Or set environment variables to point to your files (see Configuration section).
+</details>
+
+<details>
+<summary><strong>❌ Blank visualization / WebGL errors</strong></summary>
+
+**Solution:** 
+1. Use a modern browser (Chrome, Firefox, Safari, Edge)
+2. Enable hardware acceleration in browser settings
+3. Update your graphics drivers
+4. Check browser console (F12) for JavaScript errors
+</details>
+
+### API Health Check
+
+Test that the server is running correctly:
+
+```bash
+# Check trajectory metadata
+curl http://localhost:5000/api/trajectory/meta
+
+# Check RMSF data
+curl http://localhost:5000/api/rmsf
+```
+
+---
+
+## 📁 Project Structure
+
+```
+asvs/
+├── app.py                  # Main Flask application
+├── trajectory_adapter.py   # MDAnalysis interface
+├── setup.py               # Package configuration
+├── run.bat                # Windows launcher
+├── run.sh                 # Mac/Linux launcher
+├── Dockerfile             # Docker configuration
+│
+├── static/                # Static web assets
+│   ├── js/               # JavaScript modules
+│   ├── css/              # Stylesheets
+│   ├── lib/              # Third-party libraries (Three.js, Vue.js)
+│   └── examples/         # Example PDB files
+│
+├── templates/             # HTML templates
+│   ├── hotspot_viewer.html
+│   ├── ballstick_viewer.html
+│   └── ribbon_viewer.html
+│
+├── viewer/                # Trajectory data
+│   ├── topology.pdb      # Molecular structure
+│   ├── trajectory.xtc    # MD trajectory
+│   └── *.json            # Metrics data files
+│
+├── visualizers/           # VTK visualizers (legacy)
+├── colormappers/          # Color mapping strategies
+└── utils/                 # Utility functions
+```
+
+---
+
+## 📚 Additional Documentation
+
+- [Developer Guide](DEVELOPER_GUIDE.md) - For contributors and developers
+- [API Documentation](API_DOCUMENTATION.md) - REST API reference
+- [Current Features](CURRENT_FEATURES.md) - Detailed feature documentation
+- [ML Pipeline Integration](ML_PIPELINE_INTEGRATION.md) - Machine learning data integration
+
+---
+
+## 📄 License
 
 Open source for educational and research purposes.
 
-## Project Structure
+---
 
-```
-/ (root)
-├── static/                  # Static assets
-│   ├── css/                 # CSS stylesheets
-│   ├── js/                  # JavaScript files
-│   │   ├── 3d_visualizer.js # Three.js based 3D visualization
-│   │   └── simple_visualizer.js # 2D canvas visualization
-│   ├── lib/                 # Third-party libraries
-│   └── examples/            # Example PDB files
-├── templates/               # HTML templates
-│   └── index.html           # Main application page
-├── app.py                   # Flask application
-├── setup.py                 # Package setup and dependencies
-├── run.bat                  # Windows run script
-├── run.sh                   # Mac/Linux run script
-└── Dockerfile               # Docker configuration file
-```
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature-name`
+3. Make your changes
+4. Test thoroughly
+5. Submit a pull request
+
+---
+
+## 📧 Support
+
+For issues or questions:
+1. Check the [Troubleshooting](#-troubleshooting) section
+2. Search existing [GitHub Issues](https://github.com/chiranjibsur/asvs/issues)
+3. Open a new issue if needed
