@@ -1,10 +1,10 @@
 import os
 import vtk
 from trame.app import get_server
-from trame.widgets import html, vtk
-from trame.ui.vtk import VtkRemoteViewer
+from trame.widgets import html
+from trame.widgets.vtk import VtkRemoteView
+from trame.ui.html import DivLayout
 from Bio import PDB
-from trame.widgets import upload
 
 # Step 1: Load the PDB file and parse it with Biopython
 def parse_pdb(pdb_file):
@@ -80,43 +80,71 @@ def create_vtk_representation(atoms, bonds):
 def main():
     # Set up the Trame server
     server = get_server()
+    state, ctrl = server.state, server.controller
+    
+    # Create VTK render window
+    render_window = vtk.vtkRenderWindow()
+    renderer = vtk.vtkRenderer()
+    render_window.AddRenderer(renderer)
+    
+    # File upload handler triggered from JavaScript
+    @ctrl.trigger("process_file")
+    def process_file(file_content, file_name):
+        if file_name and file_name.endswith('.pdb'):
+            # Parse the uploaded PDB file
+            import tempfile
+            import base64
+            
+            # Decode base64 content if needed
+            if isinstance(file_content, str):
+                file_content = base64.b64decode(file_content.split(',')[-1])
+            
+            with tempfile.NamedTemporaryFile(mode='wb', suffix='.pdb', delete=False) as f:
+                f.write(file_content)
+                temp_path = f.name
+            
+            atoms, bonds = parse_pdb(temp_path)
+            os.unlink(temp_path)
 
-    # Upload handler
-    def handle_file_upload(file_data, filename):
-        if filename.endswith('.pdb'):
-            # Step 4: Parse the uploaded PDB file
-            atoms, bonds = parse_pdb(file_data)
-
-            # Create the VTK renderer
-            renderer = create_vtk_representation(atoms, bonds)
-
-            # Set up VTK viewer using Trame
-            viewer = VtkRemoteViewer()
-            viewer.renderer = renderer
-            viewer.camera.view_up = [0, 0, 1]
-
-            # Update the viewer
-            viewer.update()
-
-            # Set the renderer and viewer
-            viewer.renderer = renderer
-            with server.ui:
-                html.H1("3D Molecular Visualization")
-                viewer
-
-        else:
+            # Update the renderer with molecular structure
+            new_renderer = create_vtk_representation(atoms, bonds)
+            
+            # Copy actors from new_renderer to main renderer
+            renderer.RemoveAllViewProps()
+            actors = new_renderer.GetActors()
+            actors.InitTraversal()
+            actor = actors.GetNextActor()
+            while actor:
+                renderer.AddActor(actor)
+                actor = actors.GetNextActor()
+            
+            renderer.ResetCamera()
+            ctrl.view_update()
+        elif file_name:
             print("Please upload a valid PDB file.")
 
-    # File upload widget
-    upload_widget = upload.FileUpload(
-        on_file=handle_file_upload,
-        label="Upload PDB File"
-    )
-
     # Layout with file upload widget
-    with server.ui:
-        html.H1("Upload a PDB File for Visualization")
-        upload_widget
+    with DivLayout(server) as layout:
+        with html.Div(style="height: 100vh; display: flex; flex-direction: column;"):
+            html.H1("Upload a PDB File for Visualization")
+            html.Input(
+                type="file",
+                accept=".pdb",
+                __events=["change"],
+                change="""
+                    const file = $event.target.files[0];
+                    if (file) {
+                        const reader = new FileReader();
+                        reader.onload = (e) => {
+                            trigger('process_file', [e.target.result, file.name]);
+                        };
+                        reader.readAsDataURL(file);
+                    }
+                """
+            )
+            with html.Div(style="flex: 1;"):
+                view = VtkRemoteView(render_window)
+                ctrl.view_update = view.update
 
     # Run the server
     server.start()
