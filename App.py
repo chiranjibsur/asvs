@@ -1,6 +1,6 @@
 import os
 import vtk
-from trame.app import get_app
+from trame.app import get_server
 from trame.widgets import html, vtk
 from trame.ui.vtk import VtkRemoteViewer
 from Bio import PDB
@@ -78,8 +78,8 @@ def create_vtk_representation(atoms, bonds):
 
 # Step 3: Setup the Trame App with file upload
 def main():
-    # Set up the Trame app
-    app = get_app()
+    # Set up the Trame server
+    server = get_server()
 
     # Upload handler
     def handle_file_upload(file_data, filename):
@@ -100,7 +100,7 @@ def main():
 
             # Set the renderer and viewer
             viewer.renderer = renderer
-            with app.layout:
+            with server.ui:
                 html.H1("3D Molecular Visualization")
                 viewer
 
@@ -114,12 +114,12 @@ def main():
     )
 
     # Layout with file upload widget
-    with app.layout:
+    with server.ui:
         html.H1("Upload a PDB File for Visualization")
         upload_widget
 
-    # Run the app
-    app.run()
+    # Run the server
+    server.start()
 
 if __name__ == '__main__':
     main()
