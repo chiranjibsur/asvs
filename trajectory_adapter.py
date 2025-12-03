@@ -81,10 +81,37 @@ class TrajectoryAdapter:
                 "resname": resname,
                 "chain": chain,
             })
+        
+        # Check if we have full backbone data or only CA atoms
+        self._has_full_backbone = self._detect_full_backbone()
+
+    def _detect_full_backbone(self) -> bool:
+        """
+        Check if the topology contains full backbone atoms (N, CA, C) or only CA.
+        Returns True if N and C atoms are present.
+        """
+        u = self.universe
+        try:
+            ca_count = len(u.select_atoms("name CA"))
+            n_count = len(u.select_atoms("name N"))
+            c_count = len(u.select_atoms("name C"))
+            
+            # If we have roughly equal numbers of N, CA, and C atoms, we have full backbone
+            if ca_count > 0 and n_count > ca_count * 0.5 and c_count > ca_count * 0.5:
+                return True
+        except Exception:
+            pass
+        return False
+
+    def has_full_backbone(self) -> bool:
+        """Return True if topology contains full backbone atoms (N, CA, C)."""
+        return self._has_full_backbone
 
     # ---- methods used by app.py ----
     def get_meta(self) -> Dict[str, int]:
-        return self._meta
+        meta = self._meta.copy()
+        meta["has_full_backbone"] = self._has_full_backbone
+        return meta
 
     def get_residue_map(self) -> List[int]:
         return self._resnos
@@ -110,17 +137,89 @@ class TrajectoryAdapter:
             if elem.startswith("CA"): elem = "CA" if elem == "CA" else "C"
             if elem[0] in "CONSHPKFZIYWBMDGLEVUTRXQJ":
                 elem = elem[0]
+            
+            # Get atom name for backbone type detection
+            atom_name = str(getattr(a, "name", "")).strip().upper()
+            backbone_type = self._get_backbone_type(atom_name)
+            
             atoms.append({
                 "index": int(i),
                 "element": elem,
                 "resnum": int(getattr(a, "resnum", getattr(a.residue, "resnum", i))),
+                "name": atom_name,
+                "backbone_type": backbone_type,
             })
 
         covalent_radii = {
             "H": 0.31, "C": 0.76, "N": 0.71, "O": 0.66, "F": 0.57,
             "P": 1.07, "S": 1.05, "CL": 1.02,
         }
-        return {"atoms": atoms, "covalent_radii": covalent_radii}
+        return {
+            "atoms": atoms, 
+            "covalent_radii": covalent_radii,
+            "has_full_backbone": self._has_full_backbone
+        }
+
+    def _get_backbone_type(self, atom_name: str) -> str:
+        """
+        Classify atom by backbone type.
+        Returns: 'backbone' for N, CA, C, O; 'sidechain' for others
+        """
+        backbone_atoms = {'N', 'CA', 'C', 'O', 'OXT', 'H', 'HA', 'HN'}
+        if atom_name in backbone_atoms:
+            return 'backbone'
+        return 'sidechain'
+
+    def get_all_atoms_with_positions(self, frame: int) -> Dict:
+        """
+        Get all atom positions with metadata for a frame.
+        Useful for ball-and-stick and point cloud viewers.
+        
+        Returns:
+        {
+            'frame': int,
+            'atoms': [{
+                'index': int,
+                'element': str,
+                'name': str,
+                'resnum': int,
+                'resname': str,
+                'backbone_type': str,
+                'position': [x, y, z]
+            }, ...]
+        }
+        """
+        u = self.universe
+        frame = max(0, min(frame, len(u.trajectory) - 1))
+        u.trajectory[frame]
+        
+        atoms = []
+        for i, a in enumerate(u.atoms):
+            elem = (getattr(a, "element", None) or str(a.name).strip()).upper()
+            elem = ''.join(ch for ch in elem if ch.isalpha())[:2] or "C"
+            if elem.startswith("CA"): elem = "CA" if elem == "CA" else "C"
+            if elem[0] in "CONSHPKFZIYWBMDGLEVUTRXQJ":
+                elem = elem[0]
+            
+            atom_name = str(getattr(a, "name", "")).strip().upper()
+            backbone_type = self._get_backbone_type(atom_name)
+            resname = str(getattr(a.residue, "resname", "UNK"))
+            
+            atoms.append({
+                "index": int(i),
+                "element": elem,
+                "name": atom_name,
+                "resnum": int(getattr(a, "resnum", getattr(a.residue, "resnum", i))),
+                "resname": resname,
+                "backbone_type": backbone_type,
+                "position": a.position.astype(float).tolist()
+            })
+        
+        return {
+            "frame": frame,
+            "atoms": atoms,
+            "has_full_backbone": self._has_full_backbone
+        }
 
     # ---- ribbon view ----
     def get_ca_xyz(self, frame: int):

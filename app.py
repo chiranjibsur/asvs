@@ -139,9 +139,31 @@ def api_hotspots_frame(frame: int):
 def api_atoms():
     """
     One-time atom metadata used to build bonds client-side.
-    Returns: { atoms: [{index, element, resnum}], covalent_radii: { 'C': 0.76, ... } }
+    Returns: { atoms: [{index, element, resnum, name, backbone_type}], covalent_radii: { 'C': 0.76, ... }, has_full_backbone: bool }
     """
     return jsonify(adapter.get_atom_table())
+
+@app.route("/api/trajectory/atoms_full/<int:frame>")
+def api_atoms_full_frame(frame: int):
+    """
+    Returns all atoms with positions and metadata for a frame.
+    Useful for ball-and-stick and point cloud viewers.
+    {
+        frame: n,
+        atoms: [{
+            index: int,
+            element: str,
+            name: str,
+            resnum: int,
+            resname: str,
+            backbone_type: str,  # 'backbone' or 'sidechain'
+            position: [x, y, z]
+        }, ...],
+        has_full_backbone: bool
+    }
+    """
+    data = adapter.get_all_atoms_with_positions(frame)
+    return jsonify(_to_serializable(data))
 
 @app.route("/api/trajectory/ca/<int:frame>")
 def api_ca_frame(frame: int):

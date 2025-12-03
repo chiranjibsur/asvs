@@ -5,6 +5,7 @@ Validates that secondary structure computation and enhanced ribbon geometry work
 """
 
 import json
+import math
 from app import app
 from trajectory_adapter import get_adapter
 
@@ -101,7 +102,6 @@ def test_backbone_reconstruction():
             c = r['C']
             
             # Calculate N-CA and CA-C distances
-            import math
             n_ca_dist = math.sqrt(sum((n[j]-ca[j])**2 for j in range(3)))
             ca_c_dist = math.sqrt(sum((ca[j]-c[j])**2 for j in range(3)))
             
@@ -176,6 +176,53 @@ def test_spline_js_exists():
     print("✓ Spline utility file is accessible and contains required functions")
     return True
 
+def test_atoms_full_api():
+    """Test that atoms_full API endpoint works correctly."""
+    print("\nTesting atoms_full API endpoint...")
+    
+    client = app.test_client()
+    response = client.get('/api/trajectory/atoms_full/0')
+    
+    assert response.status_code == 200, f"Expected 200, got {response.status_code}"
+    
+    data = response.get_json()
+    assert 'frame' in data, "Response missing 'frame' field"
+    assert 'atoms' in data, "Response missing 'atoms' field"
+    assert 'has_full_backbone' in data, "Response missing 'has_full_backbone' field"
+    
+    atoms = data['atoms']
+    assert len(atoms) > 0, "No atoms in response"
+    
+    # Validate structure of atom data
+    for a in atoms[:5]:  # Check first 5
+        assert 'index' in a, "Atom missing 'index'"
+        assert 'element' in a, "Atom missing 'element'"
+        assert 'name' in a, "Atom missing 'name'"
+        assert 'resnum' in a, "Atom missing 'resnum'"
+        assert 'backbone_type' in a, "Atom missing 'backbone_type'"
+        assert 'position' in a, "Atom missing 'position'"
+        assert len(a['position']) == 3, "Position should have 3 coordinates"
+        assert a['backbone_type'] in ['backbone', 'sidechain'], f"Invalid backbone_type: {a['backbone_type']}"
+    
+    print(f"✓ Atoms full API works correctly ({len(atoms)} atoms)")
+    print(f"  Has full backbone: {data['has_full_backbone']}")
+    return True
+
+def test_meta_includes_backbone_flag():
+    """Test that meta API includes has_full_backbone flag."""
+    print("\nTesting meta API includes backbone flag...")
+    
+    client = app.test_client()
+    response = client.get('/api/trajectory/meta')
+    
+    assert response.status_code == 200, f"Expected 200, got {response.status_code}"
+    
+    data = response.get_json()
+    assert 'has_full_backbone' in data, "Meta missing 'has_full_backbone' field"
+    
+    print(f"✓ Meta API includes backbone flag: {data['has_full_backbone']}")
+    return True
+
 def main():
     """Run all tests."""
     print("=" * 60)
@@ -189,6 +236,8 @@ def main():
         test_adapter_secondary_structure,
         test_frame_consistency,
         test_spline_js_exists,
+        test_atoms_full_api,
+        test_meta_includes_backbone_flag,
     ]
     
     passed = 0

@@ -60,6 +60,13 @@
   const meta = await (await fetch('/api/trajectory/meta')).json();
   slider.max = meta.n_frames - 1;
   frameLbl.textContent = '0';
+  
+  // Check if we have full backbone data
+  const hasFullBackbone = meta.has_full_backbone || false;
+  console.log('Has full backbone data:', hasFullBackbone);
+  if (!hasFullBackbone) {
+    console.log('Note: Topology contains only CA atoms. Ribbon using reconstructed backbone data.');
+  }
 
   // --- residue order (for mapping CA order -> residue number) ---
   // Expect: { residues: [{index, resnum, resname, chain}, ...] }

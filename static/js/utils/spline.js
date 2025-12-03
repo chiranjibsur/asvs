@@ -100,6 +100,11 @@ function computeRibbonNormalsFromBackbone(backboneData) {
  * @returns {Array} Array of {position, tangent, normal, binormal} objects
  */
 function computeRotationMinimizingFrames(curve, segments, initialNormal = null, backboneNormals = null) {
+  // Blend factor for incorporating backbone normals into RMF computation
+  // 0 = pure RMF, 1 = use backbone normals directly
+  // A value of 0.3 provides smooth transitions while maintaining biological accuracy
+  const BACKBONE_NORMAL_BLEND_FACTOR = 0.3;
+  
   const frames = [];
   const numResidues = backboneNormals ? backboneNormals.length : 0;
   
@@ -206,9 +211,8 @@ function computeRotationMinimizingFrames(curve, segments, initialNormal = null, 
     
     // Blend with backbone normal if available (for smoother transitions)
     if (targetNormal) {
-      // Use a blend factor - backbone normal provides the "target" orientation
-      const blendFactor = 0.3; // How much to pull towards backbone normal
-      normal.lerp(targetNormal, blendFactor).normalize();
+      // Use the defined blend factor - backbone normal provides the "target" orientation
+      normal.lerp(targetNormal, BACKBONE_NORMAL_BLEND_FACTOR).normalize();
     }
     
     const binormal = new THREE.Vector3().crossVectors(tangent, normal).normalize();
