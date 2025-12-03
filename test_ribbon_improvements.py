@@ -9,6 +9,13 @@ import math
 from app import app
 from trajectory_adapter import get_adapter
 
+# Standard backbone bond length ranges (Ångströms)
+# Based on Engh & Huber (1991) and typical MD simulation tolerances
+N_CA_MIN_DIST = 1.2  # Minimum acceptable N-CA distance
+N_CA_MAX_DIST = 1.8  # Maximum acceptable N-CA distance
+CA_C_MIN_DIST = 1.3  # Minimum acceptable CA-C distance
+CA_C_MAX_DIST = 1.8  # Maximum acceptable CA-C distance
+
 def test_secondary_structure_api():
     """Test that secondary structure API endpoint works correctly."""
     print("Testing secondary structure API endpoint...")
@@ -105,9 +112,9 @@ def test_backbone_reconstruction():
             n_ca_dist = math.sqrt(sum((n[j]-ca[j])**2 for j in range(3)))
             ca_c_dist = math.sqrt(sum((ca[j]-c[j])**2 for j in range(3)))
             
-            # Standard bond lengths: N-CA ~1.47Å, CA-C ~1.52Å
-            assert 1.2 < n_ca_dist < 1.8, f"N-CA distance {n_ca_dist:.2f} out of range for residue {i}"
-            assert 1.3 < ca_c_dist < 1.8, f"CA-C distance {ca_c_dist:.2f} out of range for residue {i}"
+            # Use defined constants for bond length validation
+            assert N_CA_MIN_DIST < n_ca_dist < N_CA_MAX_DIST, f"N-CA distance {n_ca_dist:.2f} out of range for residue {i}"
+            assert CA_C_MIN_DIST < ca_c_dist < CA_C_MAX_DIST, f"CA-C distance {ca_c_dist:.2f} out of range for residue {i}"
     
     print("✓ Backbone reconstruction produces valid positions")
     return True

@@ -9,6 +9,9 @@
 
 /* global THREE */
 
+// Constants for backbone processing
+const VALID_BACKBONE_THRESHOLD = 0.5;  // Minimum ratio of valid normals for backbone data to be usable
+
 /**
  * Compute ribbon normal from backbone atoms (N, CA, C).
  * The ribbon normal is perpendicular to the peptide plane, giving proper
@@ -60,8 +63,8 @@ function computeRibbonNormalsFromBackbone(backboneData) {
   
   // Check if we have any valid normals
   const validCount = normals.filter(n => n !== null).length;
-  if (validCount < backboneData.length * 0.5) {
-    // Less than 50% valid - backbone data is too incomplete
+  if (validCount < backboneData.length * VALID_BACKBONE_THRESHOLD) {
+    // Less than threshold valid - backbone data is too incomplete
     return null;
   }
   

@@ -85,6 +85,10 @@ class TrajectoryAdapter:
         # Check if we have full backbone data or only CA atoms
         self._has_full_backbone = self._detect_full_backbone()
 
+    # Constants for backbone detection and reconstruction
+    BACKBONE_COMPLETENESS_THRESHOLD = 0.5  # Minimum ratio of N/C to CA atoms for full backbone
+    NUMERICAL_TOLERANCE = 1e-8  # Tolerance for numerical comparisons
+
     def _detect_full_backbone(self) -> bool:
         """
         Check if the topology contains full backbone atoms (N, CA, C) or only CA.
@@ -97,7 +101,8 @@ class TrajectoryAdapter:
             c_count = len(u.select_atoms("name C"))
             
             # If we have roughly equal numbers of N, CA, and C atoms, we have full backbone
-            if ca_count > 0 and n_count > ca_count * 0.5 and c_count > ca_count * 0.5:
+            threshold = self.BACKBONE_COMPLETENESS_THRESHOLD
+            if ca_count > 0 and n_count > ca_count * threshold and c_count > ca_count * threshold:
                 return True
         except Exception:
             pass
@@ -247,8 +252,14 @@ class TrajectoryAdapter:
         using the local tangent of the CA trace to determine orientation.
         
         Reference: Engh & Huber (1991) - Standard bond lengths in proteins
+        
+        Raises:
+            RuntimeError: If numpy is not available
         """
-        if np is None or len(ca_positions) < 2:
+        if np is None:
+            raise RuntimeError("NumPy is required for backbone reconstruction but is not available.")
+        
+        if len(ca_positions) < 2:
             return []
         
         # Standard bond lengths in Ångströms
@@ -275,7 +286,7 @@ class TrajectoryAdapter:
             
             # Normalize direction
             norm = np.linalg.norm(direction)
-            if norm < 1e-8:
+            if norm < self.NUMERICAL_TOLERANCE:
                 direction = np.array([1.0, 0.0, 0.0])
             else:
                 direction = direction / norm
