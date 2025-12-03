@@ -60,6 +60,13 @@
   const meta = await (await fetch('/api/trajectory/meta')).json();
   slider.max = meta.n_frames - 1;
   frameLbl.textContent = '0';
+  
+  // Check if we have full backbone data
+  const hasFullBackbone = meta.has_full_backbone || false;
+  console.log('Has full backbone data:', hasFullBackbone);
+  if (!hasFullBackbone) {
+    console.log('Note: Topology contains only CA atoms. Ribbon using reconstructed backbone data.');
+  }
 
   // --- residue order (for mapping CA order -> residue number) ---
   // Expect: { residues: [{index, resnum, resname, chain}, ...] }
@@ -398,7 +405,23 @@
       console.warn('Could not fetch secondary structure data:', e);
     }
     
-    // 3) per-residue metric scores
+    // 3) fetch backbone atoms for proper ribbon orientation
+    let backboneData = null;
+    let backboneNormals = null;
+    try {
+      const bbResponse = await fetch(`/api/trajectory/backbone/${frame}`);
+      if (bbResponse.ok) {
+        backboneData = await bbResponse.json();
+        // Compute ribbon normals from backbone if we have the utility function
+        if (backboneData.residues && window.SplineUtils && window.SplineUtils.computeRibbonNormalsFromBackbone) {
+          backboneNormals = window.SplineUtils.computeRibbonNormalsFromBackbone(backboneData.residues);
+        }
+      }
+    } catch (e) {
+      console.warn('Could not fetch backbone data:', e);
+    }
+    
+    // 4) per-residue metric scores
     let scoreData = {};
     if (showRMSF && rmsfData) {
       scoreData = rmsfData.normalized;
@@ -443,8 +466,8 @@
         colorArray.push(colorFromScore(score));
       }
       
-      // Create enhanced ribbon geometry
-      geom = window.SplineUtils.createRibbonGeometry(curve, tubularSegments, ssArray, colorArray);
+      // Create enhanced ribbon geometry with backbone normals for better orientation
+      geom = window.SplineUtils.createRibbonGeometry(curve, tubularSegments, ssArray, colorArray, backboneNormals);
     } else {
       // Fallback to simple tube geometry
       const tubularSegments = Math.max(120, pts.length * 4);

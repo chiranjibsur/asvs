@@ -5,8 +5,16 @@ Validates that secondary structure computation and enhanced ribbon geometry work
 """
 
 import json
+import math
 from app import app
 from trajectory_adapter import get_adapter
+
+# Standard backbone bond length ranges (Ångströms)
+# Based on Engh & Huber (1991) and typical MD simulation tolerances
+N_CA_MIN_DIST = 1.2  # Minimum acceptable N-CA distance
+N_CA_MAX_DIST = 1.8  # Maximum acceptable N-CA distance
+CA_C_MIN_DIST = 1.3  # Minimum acceptable CA-C distance
+CA_C_MAX_DIST = 1.8  # Maximum acceptable CA-C distance
 
 def test_secondary_structure_api():
     """Test that secondary structure API endpoint works correctly."""
@@ -62,6 +70,53 @@ def test_backbone_api():
         assert 'C' in r, "Residue missing 'C'"
     
     print(f"✓ Backbone atoms API works correctly ({len(residues)} residues)")
+    return True
+
+def test_backbone_reconstruction():
+    """Test that backbone atoms are reconstructed when only CA is available."""
+    print("\nTesting backbone reconstruction from CA-only topology...")
+    
+    adapter = get_adapter()
+    backbone = adapter.get_backbone_atoms(0)
+    
+    assert len(backbone) > 0, "No backbone data"
+    
+    # Count how many residues have reconstructed N, CA, and C positions
+    has_n = sum(1 for r in backbone if r.get('N') is not None)
+    has_ca = sum(1 for r in backbone if r.get('CA') is not None)
+    has_c = sum(1 for r in backbone if r.get('C') is not None)
+    
+    total = len(backbone)
+    print(f"  Total residues: {total}")
+    print(f"  With N position: {has_n} ({100*has_n/total:.1f}%)")
+    print(f"  With CA position: {has_ca} ({100*has_ca/total:.1f}%)")
+    print(f"  With C position: {has_c} ({100*has_c/total:.1f}%)")
+    
+    # All residues should have CA since we have CA-only topology
+    assert has_ca == total, f"Expected all residues to have CA, got {has_ca}"
+    
+    # Check if N and C were reconstructed (they should be for CA-only topology)
+    # Note: The topology may be CA-only, so reconstruction should provide N and C
+    assert has_n >= total * 0.9, f"Expected N positions for most residues, got {has_n}"
+    assert has_c >= total * 0.9, f"Expected C positions for most residues, got {has_c}"
+    
+    # Verify the reconstructed positions are reasonable
+    # N should be "behind" CA and C should be "ahead" along backbone
+    for i, r in enumerate(backbone[:10]):  # Check first 10
+        if r['N'] and r['CA'] and r['C']:
+            n = r['N']
+            ca = r['CA']
+            c = r['C']
+            
+            # Calculate N-CA and CA-C distances
+            n_ca_dist = math.sqrt(sum((n[j]-ca[j])**2 for j in range(3)))
+            ca_c_dist = math.sqrt(sum((ca[j]-c[j])**2 for j in range(3)))
+            
+            # Use defined constants for bond length validation
+            assert N_CA_MIN_DIST < n_ca_dist < N_CA_MAX_DIST, f"N-CA distance {n_ca_dist:.2f} out of range for residue {i}"
+            assert CA_C_MIN_DIST < ca_c_dist < CA_C_MAX_DIST, f"CA-C distance {ca_c_dist:.2f} out of range for residue {i}"
+    
+    print("✓ Backbone reconstruction produces valid positions")
     return True
 
 def test_adapter_secondary_structure():
@@ -128,6 +183,53 @@ def test_spline_js_exists():
     print("✓ Spline utility file is accessible and contains required functions")
     return True
 
+def test_atoms_full_api():
+    """Test that atoms_full API endpoint works correctly."""
+    print("\nTesting atoms_full API endpoint...")
+    
+    client = app.test_client()
+    response = client.get('/api/trajectory/atoms_full/0')
+    
+    assert response.status_code == 200, f"Expected 200, got {response.status_code}"
+    
+    data = response.get_json()
+    assert 'frame' in data, "Response missing 'frame' field"
+    assert 'atoms' in data, "Response missing 'atoms' field"
+    assert 'has_full_backbone' in data, "Response missing 'has_full_backbone' field"
+    
+    atoms = data['atoms']
+    assert len(atoms) > 0, "No atoms in response"
+    
+    # Validate structure of atom data
+    for a in atoms[:5]:  # Check first 5
+        assert 'index' in a, "Atom missing 'index'"
+        assert 'element' in a, "Atom missing 'element'"
+        assert 'name' in a, "Atom missing 'name'"
+        assert 'resnum' in a, "Atom missing 'resnum'"
+        assert 'backbone_type' in a, "Atom missing 'backbone_type'"
+        assert 'position' in a, "Atom missing 'position'"
+        assert len(a['position']) == 3, "Position should have 3 coordinates"
+        assert a['backbone_type'] in ['backbone', 'sidechain'], f"Invalid backbone_type: {a['backbone_type']}"
+    
+    print(f"✓ Atoms full API works correctly ({len(atoms)} atoms)")
+    print(f"  Has full backbone: {data['has_full_backbone']}")
+    return True
+
+def test_meta_includes_backbone_flag():
+    """Test that meta API includes has_full_backbone flag."""
+    print("\nTesting meta API includes backbone flag...")
+    
+    client = app.test_client()
+    response = client.get('/api/trajectory/meta')
+    
+    assert response.status_code == 200, f"Expected 200, got {response.status_code}"
+    
+    data = response.get_json()
+    assert 'has_full_backbone' in data, "Meta missing 'has_full_backbone' field"
+    
+    print(f"✓ Meta API includes backbone flag: {data['has_full_backbone']}")
+    return True
+
 def main():
     """Run all tests."""
     print("=" * 60)
@@ -137,9 +239,12 @@ def main():
     tests = [
         test_secondary_structure_api,
         test_backbone_api,
+        test_backbone_reconstruction,
         test_adapter_secondary_structure,
         test_frame_consistency,
         test_spline_js_exists,
+        test_atoms_full_api,
+        test_meta_includes_backbone_flag,
     ]
     
     passed = 0

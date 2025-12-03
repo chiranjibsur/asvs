@@ -305,6 +305,13 @@
   const atomInfo = await (await fetch('/api/trajectory/atoms')).json();
   const atoms = atomInfo.atoms;
   const covR  = atomInfo.covalent_radii || {};
+  const hasFullBackbone = atomInfo.has_full_backbone || false;
+  
+  // Log backbone status for debugging
+  console.log('Has full backbone data:', hasFullBackbone);
+  if (!hasFullBackbone) {
+    console.log('Note: Topology contains only CA atoms. Full backbone visualization is using reconstructed data.');
+  }
 
   // ---- build atom -> residueIndex mapping (robust) ----
   async function getAtomResidueIndexArray () {
@@ -348,6 +355,8 @@
     m.userData.atomIndex = i;
     m.userData.element = atoms[i].element;
     m.userData.resnum = atoms[i].resnum;
+    m.userData.name = atoms[i].name || '';
+    m.userData.backboneType = atoms[i].backbone_type || 'sidechain';
     scene.add(m);
     atomMeshes.push(m);
   }

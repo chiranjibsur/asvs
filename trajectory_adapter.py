@@ -81,10 +81,42 @@ class TrajectoryAdapter:
                 "resname": resname,
                 "chain": chain,
             })
+        
+        # Check if we have full backbone data or only CA atoms
+        self._has_full_backbone = self._detect_full_backbone()
+
+    # Constants for backbone detection and reconstruction
+    BACKBONE_COMPLETENESS_THRESHOLD = 0.5  # Minimum ratio of N/C to CA atoms for full backbone
+    NUMERICAL_TOLERANCE = 1e-8  # Tolerance for numerical comparisons
+
+    def _detect_full_backbone(self) -> bool:
+        """
+        Check if the topology contains full backbone atoms (N, CA, C) or only CA.
+        Returns True if N and C atoms are present.
+        """
+        u = self.universe
+        try:
+            ca_count = len(u.select_atoms("name CA"))
+            n_count = len(u.select_atoms("name N"))
+            c_count = len(u.select_atoms("name C"))
+            
+            # If we have roughly equal numbers of N, CA, and C atoms, we have full backbone
+            threshold = self.BACKBONE_COMPLETENESS_THRESHOLD
+            if ca_count > 0 and n_count > ca_count * threshold and c_count > ca_count * threshold:
+                return True
+        except Exception:
+            pass
+        return False
+
+    def has_full_backbone(self) -> bool:
+        """Return True if topology contains full backbone atoms (N, CA, C)."""
+        return self._has_full_backbone
 
     # ---- methods used by app.py ----
     def get_meta(self) -> Dict[str, int]:
-        return self._meta
+        meta = self._meta.copy()
+        meta["has_full_backbone"] = self._has_full_backbone
+        return meta
 
     def get_residue_map(self) -> List[int]:
         return self._resnos
@@ -110,17 +142,89 @@ class TrajectoryAdapter:
             if elem.startswith("CA"): elem = "CA" if elem == "CA" else "C"
             if elem[0] in "CONSHPKFZIYWBMDGLEVUTRXQJ":
                 elem = elem[0]
+            
+            # Get atom name for backbone type detection
+            atom_name = str(getattr(a, "name", "")).strip().upper()
+            backbone_type = self._get_backbone_type(atom_name)
+            
             atoms.append({
                 "index": int(i),
                 "element": elem,
                 "resnum": int(getattr(a, "resnum", getattr(a.residue, "resnum", i))),
+                "name": atom_name,
+                "backbone_type": backbone_type,
             })
 
         covalent_radii = {
             "H": 0.31, "C": 0.76, "N": 0.71, "O": 0.66, "F": 0.57,
             "P": 1.07, "S": 1.05, "CL": 1.02,
         }
-        return {"atoms": atoms, "covalent_radii": covalent_radii}
+        return {
+            "atoms": atoms, 
+            "covalent_radii": covalent_radii,
+            "has_full_backbone": self._has_full_backbone
+        }
+
+    def _get_backbone_type(self, atom_name: str) -> str:
+        """
+        Classify atom by backbone type.
+        Returns: 'backbone' for N, CA, C, O; 'sidechain' for others
+        """
+        backbone_atoms = {'N', 'CA', 'C', 'O', 'OXT', 'H', 'HA', 'HN'}
+        if atom_name in backbone_atoms:
+            return 'backbone'
+        return 'sidechain'
+
+    def get_all_atoms_with_positions(self, frame: int) -> Dict:
+        """
+        Get all atom positions with metadata for a frame.
+        Useful for ball-and-stick and point cloud viewers.
+        
+        Returns:
+        {
+            'frame': int,
+            'atoms': [{
+                'index': int,
+                'element': str,
+                'name': str,
+                'resnum': int,
+                'resname': str,
+                'backbone_type': str,
+                'position': [x, y, z]
+            }, ...]
+        }
+        """
+        u = self.universe
+        frame = max(0, min(frame, len(u.trajectory) - 1))
+        u.trajectory[frame]
+        
+        atoms = []
+        for i, a in enumerate(u.atoms):
+            elem = (getattr(a, "element", None) or str(a.name).strip()).upper()
+            elem = ''.join(ch for ch in elem if ch.isalpha())[:2] or "C"
+            if elem.startswith("CA"): elem = "CA" if elem == "CA" else "C"
+            if elem[0] in "CONSHPKFZIYWBMDGLEVUTRXQJ":
+                elem = elem[0]
+            
+            atom_name = str(getattr(a, "name", "")).strip().upper()
+            backbone_type = self._get_backbone_type(atom_name)
+            resname = str(getattr(a.residue, "resname", "UNK"))
+            
+            atoms.append({
+                "index": int(i),
+                "element": elem,
+                "name": atom_name,
+                "resnum": int(getattr(a, "resnum", getattr(a.residue, "resnum", i))),
+                "resname": resname,
+                "backbone_type": backbone_type,
+                "position": a.position.astype(float).tolist()
+            })
+        
+        return {
+            "frame": frame,
+            "atoms": atoms,
+            "has_full_backbone": self._has_full_backbone
+        }
 
     # ---- ribbon view ----
     def get_ca_xyz(self, frame: int):
@@ -135,9 +239,80 @@ class TrajectoryAdapter:
             sel = u.select_atoms("backbone and not name H*")
         return sel.positions.astype(float).tolist()
 
+    def _reconstruct_backbone_from_ca(self, ca_positions: List[List[float]]) -> List[Dict]:
+        """
+        Reconstruct N and C backbone positions from CA-only coordinates.
+        
+        Uses standard protein backbone geometry:
+        - N-CA bond: ~1.47 Å
+        - CA-C bond: ~1.52 Å
+        - N-CA-C angle: ~111°
+        
+        The reconstruction places N and C atoms along the backbone direction,
+        using the local tangent of the CA trace to determine orientation.
+        
+        Reference: Engh & Huber (1991) - Standard bond lengths in proteins
+        
+        Raises:
+            RuntimeError: If numpy is not available
+        """
+        if np is None:
+            raise RuntimeError("NumPy is required for backbone reconstruction but is not available.")
+        
+        if len(ca_positions) < 2:
+            return []
+        
+        # Standard bond lengths in Ångströms
+        N_CA_BOND = 1.47
+        CA_C_BOND = 1.52
+        
+        reconstructed = []
+        coords = np.array(ca_positions, dtype=float)
+        n = len(coords)
+        
+        for i in range(n):
+            ca = coords[i]
+            
+            # Compute local backbone direction (tangent)
+            if i == 0:
+                # First residue: use direction to next CA
+                direction = coords[i + 1] - ca
+            elif i == n - 1:
+                # Last residue: use direction from previous CA
+                direction = ca - coords[i - 1]
+            else:
+                # Interior residues: average of both directions
+                direction = (coords[i + 1] - coords[i - 1]) / 2.0
+            
+            # Normalize direction
+            norm = np.linalg.norm(direction)
+            if norm < self.NUMERICAL_TOLERANCE:
+                direction = np.array([1.0, 0.0, 0.0])
+            else:
+                direction = direction / norm
+            
+            # Place N atom "behind" CA along backbone direction
+            n_pos = ca - direction * N_CA_BOND
+            
+            # Place C atom "ahead" of CA along backbone direction
+            c_pos = ca + direction * CA_C_BOND
+            
+            reconstructed.append({
+                'N': n_pos.tolist(),
+                'CA': ca.tolist(),
+                'C': c_pos.tolist()
+            })
+        
+        return reconstructed
+
     def get_backbone_atoms(self, frame: int):
         """
         Get backbone atoms (N, CA, C) for each residue.
+        
+        If the topology only contains CA atoms, this method will reconstruct
+        approximate N and C positions using standard backbone geometry.
+        This enables proper ribbon visualization even for CA-only models.
+        
         Returns a dict with 'residues' list where each residue has:
         {
             'index': int,
@@ -153,6 +328,9 @@ class TrajectoryAdapter:
         u.trajectory[frame]
         
         result = []
+        has_real_backbone = False
+        ca_positions = []
+        
         for idx, residue in enumerate(u.residues):
             resnum = int(getattr(residue, "resnum", idx + 1))
             resname = str(getattr(residue, "resname", "UNK"))
@@ -173,12 +351,26 @@ class TrajectoryAdapter:
                 
                 if atom_name == 'N':
                     backbone['N'] = pos
+                    has_real_backbone = True
                 elif atom_name == 'CA':
                     backbone['CA'] = pos
+                    ca_positions.append(pos)
                 elif atom_name == 'C':
                     backbone['C'] = pos
+                    has_real_backbone = True
             
             result.append(backbone)
+        
+        # If we only have CA atoms, reconstruct N and C positions
+        if not has_real_backbone and ca_positions:
+            reconstructed = self._reconstruct_backbone_from_ca(ca_positions)
+            
+            for i, res in enumerate(result):
+                if i < len(reconstructed):
+                    if res['N'] is None:
+                        res['N'] = reconstructed[i]['N']
+                    if res['C'] is None:
+                        res['C'] = reconstructed[i]['C']
         
         return result
 
