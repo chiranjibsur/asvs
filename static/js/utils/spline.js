@@ -10,14 +10,98 @@
 /* global THREE */
 
 /**
+ * Compute ribbon normal from backbone atoms (N, CA, C).
+ * The ribbon normal is perpendicular to the peptide plane, giving proper
+ * orientation for protein ribbon representations.
+ * 
+ * @param {Array} n_pos - [x, y, z] position of N atom
+ * @param {Array} ca_pos - [x, y, z] position of CA atom  
+ * @param {Array} c_pos - [x, y, z] position of C atom
+ * @returns {THREE.Vector3} The ribbon normal vector
+ */
+function computeRibbonNormalFromBackbone(n_pos, ca_pos, c_pos) {
+  if (!n_pos || !ca_pos || !c_pos) {
+    return null;
+  }
+  
+  const n = new THREE.Vector3(n_pos[0], n_pos[1], n_pos[2]);
+  const ca = new THREE.Vector3(ca_pos[0], ca_pos[1], ca_pos[2]);
+  const c = new THREE.Vector3(c_pos[0], c_pos[1], c_pos[2]);
+  
+  // Vectors from CA to N and CA to C
+  const ca_n = n.clone().sub(ca);
+  const ca_c = c.clone().sub(ca);
+  
+  // Cross product gives normal to peptide plane
+  const normal = new THREE.Vector3().crossVectors(ca_n, ca_c).normalize();
+  
+  return normal;
+}
+
+/**
+ * Compute ribbon normals for all residues from backbone data.
+ * Falls back to null if backbone data is incomplete.
+ * 
+ * @param {Array} backboneData - Array of {N, CA, C} for each residue
+ * @returns {Array} Array of THREE.Vector3 normals (or null if incomplete)
+ */
+function computeRibbonNormalsFromBackbone(backboneData) {
+  if (!backboneData || backboneData.length === 0) {
+    return null;
+  }
+  
+  const normals = [];
+  
+  for (let i = 0; i < backboneData.length; i++) {
+    const res = backboneData[i];
+    const normal = computeRibbonNormalFromBackbone(res.N, res.CA, res.C);
+    normals.push(normal);
+  }
+  
+  // Check if we have any valid normals
+  const validCount = normals.filter(n => n !== null).length;
+  if (validCount < backboneData.length * 0.5) {
+    // Less than 50% valid - backbone data is too incomplete
+    return null;
+  }
+  
+  // Interpolate missing normals
+  for (let i = 0; i < normals.length; i++) {
+    if (normals[i] === null) {
+      // Find nearest valid neighbors
+      let prevIdx = i - 1;
+      while (prevIdx >= 0 && normals[prevIdx] === null) prevIdx--;
+      
+      let nextIdx = i + 1;
+      while (nextIdx < normals.length && normals[nextIdx] === null) nextIdx++;
+      
+      if (prevIdx >= 0 && nextIdx < normals.length) {
+        // Interpolate between neighbors
+        normals[i] = normals[prevIdx].clone().lerp(normals[nextIdx], 0.5).normalize();
+      } else if (prevIdx >= 0) {
+        normals[i] = normals[prevIdx].clone();
+      } else if (nextIdx < normals.length) {
+        normals[i] = normals[nextIdx].clone();
+      } else {
+        normals[i] = new THREE.Vector3(0, 1, 0); // Default fallback
+      }
+    }
+  }
+  
+  return normals;
+}
+
+/**
  * Compute rotation-minimizing frames along a curve
  * @param {THREE.Curve} curve - The curve to compute frames for
  * @param {number} segments - Number of segments along the curve
  * @param {THREE.Vector3} initialNormal - Initial normal vector (optional)
+ * @param {Array} backboneNormals - Array of THREE.Vector3 normals from backbone (optional)
  * @returns {Array} Array of {position, tangent, normal, binormal} objects
  */
-function computeRotationMinimizingFrames(curve, segments, initialNormal = null) {
+function computeRotationMinimizingFrames(curve, segments, initialNormal = null, backboneNormals = null) {
   const frames = [];
+  const numResidues = backboneNormals ? backboneNormals.length : 0;
   
   // Initial frame at t=0
   const t0 = 0;
@@ -26,7 +110,13 @@ function computeRotationMinimizingFrames(curve, segments, initialNormal = null) 
   
   // Determine initial normal
   let normal0;
-  if (initialNormal) {
+  
+  // Try to use backbone normal if available
+  if (backboneNormals && backboneNormals.length > 0 && backboneNormals[0]) {
+    normal0 = backboneNormals[0].clone().normalize();
+    // Make sure it's perpendicular to tangent
+    normal0.sub(tangent0.clone().multiplyScalar(normal0.dot(tangent0))).normalize();
+  } else if (initialNormal) {
     normal0 = initialNormal.clone().normalize();
     // Make sure it's perpendicular to tangent
     normal0.sub(tangent0.clone().multiplyScalar(normal0.dot(tangent0))).normalize();
@@ -72,6 +162,22 @@ function computeRotationMinimizingFrames(curve, segments, initialNormal = null) 
       continue;
     }
     
+    // Get backbone normal for this position if available
+    let targetNormal = null;
+    if (backboneNormals && numResidues > 0) {
+      const residueIdx = Math.min(Math.floor(t * numResidues), numResidues - 1);
+      if (backboneNormals[residueIdx]) {
+        targetNormal = backboneNormals[residueIdx].clone();
+        // Make perpendicular to tangent
+        targetNormal.sub(tangent.clone().multiplyScalar(targetNormal.dot(tangent)));
+        if (targetNormal.lengthSq() > 1e-8) {
+          targetNormal.normalize();
+        } else {
+          targetNormal = null;
+        }
+      }
+    }
+    
     // Parallel transport of previous normal
     const rL = prevFrame.normal.clone();
     const tL = prevFrame.tangent.clone();
@@ -97,6 +203,14 @@ function computeRotationMinimizingFrames(curve, segments, initialNormal = null) 
     }
     
     normal.normalize();
+    
+    // Blend with backbone normal if available (for smoother transitions)
+    if (targetNormal) {
+      // Use a blend factor - backbone normal provides the "target" orientation
+      const blendFactor = 0.3; // How much to pull towards backbone normal
+      normal.lerp(targetNormal, blendFactor).normalize();
+    }
+    
     const binormal = new THREE.Vector3().crossVectors(tangent, normal).normalize();
     
     frames.push({
@@ -116,10 +230,11 @@ function computeRotationMinimizingFrames(curve, segments, initialNormal = null) 
  * @param {number} segments - Number of segments
  * @param {Array} secondaryStructure - Array of 'H', 'E', or 'C' for each segment
  * @param {Array} colors - Array of THREE.Color objects for each segment
+ * @param {Array} backboneNormals - Optional array of THREE.Vector3 normals from backbone
  * @returns {THREE.BufferGeometry} The ribbon geometry
  */
-function createRibbonGeometry(curve, segments, secondaryStructure, colors) {
-  const frames = computeRotationMinimizingFrames(curve, segments);
+function createRibbonGeometry(curve, segments, secondaryStructure, colors, backboneNormals = null) {
+  const frames = computeRotationMinimizingFrames(curve, segments, null, backboneNormals);
   
   // Geometry arrays
   const positions = [];
@@ -322,5 +437,7 @@ function smoothArray(values, windowSize = 3) {
 window.SplineUtils = {
   computeRotationMinimizingFrames,
   createRibbonGeometry,
-  smoothArray
+  smoothArray,
+  computeRibbonNormalFromBackbone,
+  computeRibbonNormalsFromBackbone
 };

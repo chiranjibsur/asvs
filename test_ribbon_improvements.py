@@ -64,6 +64,54 @@ def test_backbone_api():
     print(f"✓ Backbone atoms API works correctly ({len(residues)} residues)")
     return True
 
+def test_backbone_reconstruction():
+    """Test that backbone atoms are reconstructed when only CA is available."""
+    print("\nTesting backbone reconstruction from CA-only topology...")
+    
+    adapter = get_adapter()
+    backbone = adapter.get_backbone_atoms(0)
+    
+    assert len(backbone) > 0, "No backbone data"
+    
+    # Count how many residues have reconstructed N, CA, and C positions
+    has_n = sum(1 for r in backbone if r.get('N') is not None)
+    has_ca = sum(1 for r in backbone if r.get('CA') is not None)
+    has_c = sum(1 for r in backbone if r.get('C') is not None)
+    
+    total = len(backbone)
+    print(f"  Total residues: {total}")
+    print(f"  With N position: {has_n} ({100*has_n/total:.1f}%)")
+    print(f"  With CA position: {has_ca} ({100*has_ca/total:.1f}%)")
+    print(f"  With C position: {has_c} ({100*has_c/total:.1f}%)")
+    
+    # All residues should have CA since we have CA-only topology
+    assert has_ca == total, f"Expected all residues to have CA, got {has_ca}"
+    
+    # Check if N and C were reconstructed (they should be for CA-only topology)
+    # Note: The topology may be CA-only, so reconstruction should provide N and C
+    assert has_n >= total * 0.9, f"Expected N positions for most residues, got {has_n}"
+    assert has_c >= total * 0.9, f"Expected C positions for most residues, got {has_c}"
+    
+    # Verify the reconstructed positions are reasonable
+    # N should be "behind" CA and C should be "ahead" along backbone
+    for i, r in enumerate(backbone[:10]):  # Check first 10
+        if r['N'] and r['CA'] and r['C']:
+            n = r['N']
+            ca = r['CA']
+            c = r['C']
+            
+            # Calculate N-CA and CA-C distances
+            import math
+            n_ca_dist = math.sqrt(sum((n[j]-ca[j])**2 for j in range(3)))
+            ca_c_dist = math.sqrt(sum((ca[j]-c[j])**2 for j in range(3)))
+            
+            # Standard bond lengths: N-CA ~1.47Å, CA-C ~1.52Å
+            assert 1.2 < n_ca_dist < 1.8, f"N-CA distance {n_ca_dist:.2f} out of range for residue {i}"
+            assert 1.3 < ca_c_dist < 1.8, f"CA-C distance {ca_c_dist:.2f} out of range for residue {i}"
+    
+    print("✓ Backbone reconstruction produces valid positions")
+    return True
+
 def test_adapter_secondary_structure():
     """Test that adapter's secondary structure computation works."""
     print("\nTesting adapter secondary structure computation...")
@@ -137,6 +185,7 @@ def main():
     tests = [
         test_secondary_structure_api,
         test_backbone_api,
+        test_backbone_reconstruction,
         test_adapter_secondary_structure,
         test_frame_consistency,
         test_spline_js_exists,

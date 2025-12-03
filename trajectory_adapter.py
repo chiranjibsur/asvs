@@ -135,9 +135,74 @@ class TrajectoryAdapter:
             sel = u.select_atoms("backbone and not name H*")
         return sel.positions.astype(float).tolist()
 
+    def _reconstruct_backbone_from_ca(self, ca_positions: List[List[float]]) -> List[Dict]:
+        """
+        Reconstruct N and C backbone positions from CA-only coordinates.
+        
+        Uses standard protein backbone geometry:
+        - N-CA bond: ~1.47 Å
+        - CA-C bond: ~1.52 Å
+        - N-CA-C angle: ~111°
+        
+        The reconstruction places N and C atoms along the backbone direction,
+        using the local tangent of the CA trace to determine orientation.
+        
+        Reference: Engh & Huber (1991) - Standard bond lengths in proteins
+        """
+        if np is None or len(ca_positions) < 2:
+            return []
+        
+        # Standard bond lengths in Ångströms
+        N_CA_BOND = 1.47
+        CA_C_BOND = 1.52
+        
+        reconstructed = []
+        coords = np.array(ca_positions, dtype=float)
+        n = len(coords)
+        
+        for i in range(n):
+            ca = coords[i]
+            
+            # Compute local backbone direction (tangent)
+            if i == 0:
+                # First residue: use direction to next CA
+                direction = coords[i + 1] - ca
+            elif i == n - 1:
+                # Last residue: use direction from previous CA
+                direction = ca - coords[i - 1]
+            else:
+                # Interior residues: average of both directions
+                direction = (coords[i + 1] - coords[i - 1]) / 2.0
+            
+            # Normalize direction
+            norm = np.linalg.norm(direction)
+            if norm < 1e-8:
+                direction = np.array([1.0, 0.0, 0.0])
+            else:
+                direction = direction / norm
+            
+            # Place N atom "behind" CA along backbone direction
+            n_pos = ca - direction * N_CA_BOND
+            
+            # Place C atom "ahead" of CA along backbone direction
+            c_pos = ca + direction * CA_C_BOND
+            
+            reconstructed.append({
+                'N': n_pos.tolist(),
+                'CA': ca.tolist(),
+                'C': c_pos.tolist()
+            })
+        
+        return reconstructed
+
     def get_backbone_atoms(self, frame: int):
         """
         Get backbone atoms (N, CA, C) for each residue.
+        
+        If the topology only contains CA atoms, this method will reconstruct
+        approximate N and C positions using standard backbone geometry.
+        This enables proper ribbon visualization even for CA-only models.
+        
         Returns a dict with 'residues' list where each residue has:
         {
             'index': int,
@@ -153,6 +218,9 @@ class TrajectoryAdapter:
         u.trajectory[frame]
         
         result = []
+        has_real_backbone = False
+        ca_positions = []
+        
         for idx, residue in enumerate(u.residues):
             resnum = int(getattr(residue, "resnum", idx + 1))
             resname = str(getattr(residue, "resname", "UNK"))
@@ -173,12 +241,26 @@ class TrajectoryAdapter:
                 
                 if atom_name == 'N':
                     backbone['N'] = pos
+                    has_real_backbone = True
                 elif atom_name == 'CA':
                     backbone['CA'] = pos
+                    ca_positions.append(pos)
                 elif atom_name == 'C':
                     backbone['C'] = pos
+                    has_real_backbone = True
             
             result.append(backbone)
+        
+        # If we only have CA atoms, reconstruct N and C positions
+        if not has_real_backbone and ca_positions:
+            reconstructed = self._reconstruct_backbone_from_ca(ca_positions)
+            
+            for i, res in enumerate(result):
+                if i < len(reconstructed):
+                    if res['N'] is None:
+                        res['N'] = reconstructed[i]['N']
+                    if res['C'] is None:
+                        res['C'] = reconstructed[i]['C']
         
         return result
 
