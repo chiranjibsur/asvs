@@ -4,6 +4,10 @@ import json
 from flask import Flask, jsonify, render_template, send_from_directory, abort
 
 from trajectory_adapter import get_adapter
+from trame_ribbon_app import (
+    ensure_ribbon_server,
+    ribbon_server_url,
+)
 
 app = Flask(__name__)
 
@@ -306,7 +310,8 @@ def viewer_ballstick():
 
 @app.route("/viewer/ribbon")
 def viewer_ribbon():
-    return render_template("ribbon_viewer.html")
+    ensure_ribbon_server()
+    return render_template("ribbon_viewer.html", ribbon_server_url=ribbon_server_url())
 
 # ------------------------------- MAIN ----------------------------------------
 if __name__ == "__main__":
