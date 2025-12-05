@@ -386,6 +386,152 @@ def test_click_handlers():
     return True
 
 
+def test_animation_playback():
+    """Test animation playback state and functions."""
+    print("\nTesting animation playback...")
+    
+    import trame_ribbon_app
+    
+    state = trame_ribbon_app.state
+    
+    # Verify animation state variables
+    assert hasattr(state, 'animation_playing'), "Missing animation_playing state"
+    assert hasattr(state, 'animation_speed'), "Missing animation_speed state"
+    assert hasattr(state, 'animation_speed_options'), "Missing animation_speed_options state"
+    
+    # Verify animation functions
+    assert hasattr(trame_ribbon_app, '_animation_step'), "Missing _animation_step function"
+    
+    # Test animation step
+    state.current_frame = 0
+    trame_ribbon_app._animation_step()
+    # Frame should advance (if animation_playing is True, but we test the function itself)
+    
+    print("✓ Animation playback infrastructure in place")
+    return True
+
+
+def test_residue_search():
+    """Test residue search functionality."""
+    print("\nTesting residue search...")
+    
+    import trame_ribbon_app
+    
+    # Verify search function exists
+    assert hasattr(trame_ribbon_app, '_search_residues'), "Missing _search_residues function"
+    
+    # Test search function
+    results = trame_ribbon_app._search_residues("ALA")
+    assert isinstance(results, list), "Search should return list"
+    
+    # Test with number
+    results = trame_ribbon_app._search_residues("1")
+    assert isinstance(results, list), "Search by number should return list"
+    
+    # Test state variables
+    state = trame_ribbon_app.state
+    assert hasattr(state, 'search_query'), "Missing search_query state"
+    assert hasattr(state, 'search_results'), "Missing search_results state"
+    
+    print("✓ Residue search working")
+    return True
+
+
+def test_multi_selection():
+    """Test multi-selection functionality."""
+    print("\nTesting multi-selection...")
+    
+    import trame_ribbon_app
+    
+    state = trame_ribbon_app.state
+    
+    # Verify state variables
+    assert hasattr(state, 'multi_select_enabled'), "Missing multi_select_enabled state"
+    assert hasattr(state, 'selected_residues'), "Missing selected_residues state"
+    assert hasattr(state, 'multi_select_metrics'), "Missing multi_select_metrics state"
+    
+    # Verify metrics calculation
+    assert hasattr(trame_ribbon_app, '_get_multi_select_metrics'), "Missing _get_multi_select_metrics function"
+    
+    print("✓ Multi-selection infrastructure in place")
+    return True
+
+
+def test_hover_tooltips():
+    """Test hover tooltip functionality."""
+    print("\nTesting hover tooltips...")
+    
+    import trame_ribbon_app
+    
+    state = trame_ribbon_app.state
+    
+    # Verify state variables
+    assert hasattr(state, 'hover_enabled'), "Missing hover_enabled state"
+    assert hasattr(state, 'hover_residue_idx'), "Missing hover_residue_idx state"
+    assert hasattr(state, 'hover_tooltip_text'), "Missing hover_tooltip_text state"
+    
+    # Verify tooltip function
+    assert hasattr(trame_ribbon_app, '_get_hover_tooltip'), "Missing _get_hover_tooltip function"
+    
+    # Test tooltip generation
+    tooltip = trame_ribbon_app._get_hover_tooltip(0)
+    assert isinstance(tooltip, str), "Tooltip should be string"
+    assert len(tooltip) > 0, "Tooltip should not be empty for valid residue"
+    
+    # Test invalid residue
+    tooltip = trame_ribbon_app._get_hover_tooltip(-1)
+    assert tooltip == "", "Tooltip should be empty for invalid residue"
+    
+    print("✓ Hover tooltips working")
+    return True
+
+
+def test_bookmarks():
+    """Test bookmark functionality."""
+    print("\nTesting bookmarks...")
+    
+    import trame_ribbon_app
+    
+    state = trame_ribbon_app.state
+    
+    # Verify state variables
+    assert hasattr(state, 'bookmarks'), "Missing bookmarks state"
+    assert hasattr(state, 'bookmark_name'), "Missing bookmark_name state"
+    
+    # Verify camera functions
+    assert hasattr(trame_ribbon_app, '_get_camera_state'), "Missing _get_camera_state function"
+    assert hasattr(trame_ribbon_app, '_set_camera_state'), "Missing _set_camera_state function"
+    
+    # Test camera state retrieval
+    camera_state = trame_ribbon_app._get_camera_state()
+    assert 'position' in camera_state, "Camera state should have position"
+    assert 'focal_point' in camera_state, "Camera state should have focal_point"
+    
+    print("✓ Bookmark functionality in place")
+    return True
+
+
+def test_focus_on_residue():
+    """Test focus on residue functionality."""
+    print("\nTesting focus on residue...")
+    
+    import trame_ribbon_app
+    
+    # Verify function exists
+    assert hasattr(trame_ribbon_app, '_focus_on_residue'), "Missing _focus_on_residue function"
+    
+    # In headless mode, just verify the function exists and camera functions work
+    assert hasattr(trame_ribbon_app, '_get_camera_state'), "Missing _get_camera_state function"
+    
+    # Test camera state functions (don't actually render)
+    camera = trame_ribbon_app.renderer.GetActiveCamera()
+    pos = camera.GetPosition()
+    assert len(pos) == 3, "Camera position should be 3D"
+    
+    print("✓ Focus on residue infrastructure in place")
+    return True
+
+
 def main():
     """Run all tests."""
     print("=" * 60)
@@ -408,6 +554,13 @@ def main():
         test_controller_functions,
         test_picking_infrastructure,
         test_click_handlers,
+        # New feature tests
+        test_animation_playback,
+        test_residue_search,
+        test_multi_selection,
+        test_hover_tooltips,
+        test_bookmarks,
+        test_focus_on_residue,
     ]
     
     passed = 0

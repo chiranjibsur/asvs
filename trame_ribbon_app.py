@@ -6,6 +6,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 from typing import Dict, List, Optional, Tuple
 
 import vtk
@@ -717,6 +718,202 @@ state.color_bar_min = 0.0
 state.color_bar_max = 1.0
 state.color_bar_label = "Value"
 
+# -----------------------------------------------------------------------------
+# New Feature: Animation playback state
+# -----------------------------------------------------------------------------
+state.animation_playing = False
+state.animation_speed = 10  # frames per second
+state.animation_speed_options = [
+    {"text": "1 fps", "value": 1},
+    {"text": "5 fps", "value": 5},
+    {"text": "10 fps", "value": 10},
+    {"text": "20 fps", "value": 20},
+    {"text": "30 fps", "value": 30},
+]
+# Animation task reference stored in state for proper cleanup
+_animation_task: Optional[asyncio.Task] = None
+
+# -----------------------------------------------------------------------------
+# New Feature: Secondary structure highlighting state
+# -----------------------------------------------------------------------------
+state.ss_highlight_enabled = False
+state.ss_colors = {
+    "helix": "#ff6b6b",   # Red for helices
+    "sheet": "#4ecdc4",   # Cyan for sheets
+    "coil": "#95a5a6",    # Gray for coils
+}
+
+# -----------------------------------------------------------------------------
+# New Feature: Residue search state
+# -----------------------------------------------------------------------------
+state.search_query = ""
+state.search_results = []
+state.search_active = False
+
+# -----------------------------------------------------------------------------
+# New Feature: Multi-selection state
+# -----------------------------------------------------------------------------
+state.multi_select_enabled = False
+state.selected_residues = []
+state.multi_select_metrics = {}
+
+# -----------------------------------------------------------------------------
+# New Feature: Hover tooltips state
+# -----------------------------------------------------------------------------
+state.hover_enabled = True
+state.hover_residue_idx = -1
+state.hover_tooltip_text = ""
+_last_hover_time = 0.0  # Throttle hover events
+HOVER_THROTTLE_MS = 50  # Minimum time between hover updates
+
+# -----------------------------------------------------------------------------
+# New Feature: Bookmark views state
+# -----------------------------------------------------------------------------
+state.bookmarks = []
+state.bookmark_name = ""
+
+
+# -----------------------------------------------------------------------------
+# New Feature Functions
+# -----------------------------------------------------------------------------
+
+def _animation_step():
+    """Advance animation by one frame."""
+    if state.animation_playing:
+        next_frame = (state.current_frame + 1) % (NUM_FRAMES)
+        state.current_frame = next_frame
+
+
+def _search_residues(query: str) -> List[Dict]:
+    """Search residues by name or number."""
+    if not query or len(query) < 1:
+        return []
+    
+    results = []
+    query_lower = query.lower().strip()
+    
+    for idx, residue in enumerate(RESIDUES):
+        resname = str(residue.get("resname", "")).lower()
+        resnum = str(residue.get("resnum", idx + 1))
+        chain = str(residue.get("chain", "A")).lower()
+        
+        # Match by residue name, number, or chain
+        if (query_lower in resname or 
+            query_lower in resnum or 
+            query_lower in chain or
+            query_lower == f"{resname}{resnum}"):
+            results.append({
+                "index": idx,
+                "resname": residue.get("resname", "UNK"),
+                "resnum": residue.get("resnum", idx + 1),
+                "chain": residue.get("chain", "A"),
+                "display": f"{residue.get('resname', 'UNK')}{residue.get('resnum', idx + 1)} (Chain {residue.get('chain', 'A')})"
+            })
+        
+        if len(results) >= 20:  # Limit results
+            break
+    
+    return results
+
+
+def _get_multi_select_metrics() -> Dict:
+    """Calculate aggregate metrics for multi-selected residues."""
+    if not state.selected_residues:
+        return {}
+    
+    metrics = {"hotspot": [], "anomaly": [], "rmsf": [], "tica": []}
+    
+    for idx in state.selected_residues:
+        residue_metrics = _get_residue_metrics(idx, state.current_frame)
+        for key in metrics:
+            val = residue_metrics.get(key, 0)
+            if val is not None:
+                metrics[key].append(val)
+    
+    # Calculate statistics
+    result = {}
+    for key, values in metrics.items():
+        if values:
+            result[key] = {
+                "mean": sum(values) / len(values),
+                "min": min(values),
+                "max": max(values),
+                "count": len(values)
+            }
+    
+    return result
+
+
+def _get_camera_state() -> Dict:
+    """Get current camera position and orientation."""
+    camera = renderer.GetActiveCamera()
+    return {
+        "position": list(camera.GetPosition()),
+        "focal_point": list(camera.GetFocalPoint()),
+        "view_up": list(camera.GetViewUp()),
+        "parallel_scale": camera.GetParallelScale(),
+    }
+
+
+def _set_camera_state(camera_state: Dict):
+    """Restore camera position and orientation."""
+    camera = renderer.GetActiveCamera()
+    if "position" in camera_state:
+        camera.SetPosition(*camera_state["position"])
+    if "focal_point" in camera_state:
+        camera.SetFocalPoint(*camera_state["focal_point"])
+    if "view_up" in camera_state:
+        camera.SetViewUp(*camera_state["view_up"])
+    if "parallel_scale" in camera_state:
+        camera.SetParallelScale(camera_state["parallel_scale"])
+    # Only render if we have a valid render window context
+    try:
+        render_window.Render()
+    except Exception:
+        pass  # Ignore render errors in headless environment
+
+
+def _focus_on_residue(residue_idx: int):
+    """Move camera to focus on a specific residue."""
+    if residue_idx < 0 or residue_idx >= len(_ca_positions_cache):
+        return
+    
+    pos = _ca_positions_cache[residue_idx]
+    camera = renderer.GetActiveCamera()
+    
+    # Set focal point to residue position
+    camera.SetFocalPoint(*pos)
+    
+    # Adjust position to maintain viewing angle
+    current_pos = list(camera.GetPosition())
+    current_focal = list(camera.GetFocalPoint())
+    
+    # Calculate offset vector
+    offset = [current_pos[i] - current_focal[i] for i in range(3)]
+    
+    # Set new position
+    new_pos = [pos[i] + offset[i] for i in range(3)]
+    camera.SetPosition(*new_pos)
+    
+    # Only render if we have a valid render window context
+    try:
+        render_window.Render()
+    except Exception:
+        pass  # Ignore render errors in headless environment
+
+
+def _get_hover_tooltip(residue_idx: int) -> str:
+    """Generate tooltip text for hover."""
+    if residue_idx < 0 or residue_idx >= NUM_RESIDUES:
+        return ""
+    
+    residue = RESIDUES[residue_idx]
+    resname = residue.get("resname", "UNK")
+    resnum = residue.get("resnum", residue_idx + 1)
+    chain = residue.get("chain", "A")
+    
+    return f"{resname}{resnum} (Chain {chain})"
+
 
 def _apply_colormap(name: str):
     lut = _get_lookup_table(name or DEFAULT_COLORMAP)
@@ -996,10 +1193,267 @@ def on_vtk_select(selection_info):
                 ctrl.update_view()
 
 
+# -----------------------------------------------------------------------------
+# New Feature: Animation playback controllers
+# -----------------------------------------------------------------------------
+@ctrl.add("toggle_animation")
+def toggle_animation():
+    """Toggle animation playback."""
+    global _animation_timer
+    state.animation_playing = not state.animation_playing
+    
+    if state.animation_playing:
+        state.status_message = f"Animation playing at {state.animation_speed} fps"
+    else:
+        state.status_message = "Animation paused"
+
+
+@ctrl.add("animation_step_forward")
+def animation_step_forward():
+    """Step animation forward by one frame."""
+    state.current_frame = (state.current_frame + 1) % NUM_FRAMES
+
+
+@ctrl.add("animation_step_backward")  
+def animation_step_backward():
+    """Step animation backward by one frame."""
+    state.current_frame = (state.current_frame - 1) % NUM_FRAMES
+
+
+@state.change("animation_playing")
+def _on_animation_change(animation_playing, **_):
+    """Handle animation state changes."""
+    global _animation_task
+    
+    if animation_playing:
+        # Start animation loop using asyncio
+        async def _animation_loop():
+            while state.animation_playing:
+                _animation_step()
+                ctrl.update_view()
+                await asyncio.sleep(1.0 / state.animation_speed)
+        
+        _animation_task = asyncio.ensure_future(_animation_loop())
+    else:
+        # Stop animation
+        if _animation_task is not None:
+            _animation_task.cancel()
+            _animation_task = None
+
+
+# -----------------------------------------------------------------------------
+# New Feature: Residue search controllers
+# -----------------------------------------------------------------------------
+@ctrl.add("search_residue")
+def search_residue(query):
+    """Search for residues matching query."""
+    state.search_query = query or ""
+    state.search_results = _search_residues(query) if query else []
+    state.search_active = len(state.search_results) > 0
+
+
+@ctrl.add("go_to_residue")
+def go_to_residue(residue_idx):
+    """Navigate to and highlight a specific residue."""
+    if 0 <= residue_idx < NUM_RESIDUES:
+        _focus_on_residue(residue_idx)
+        state.selected_residue_idx = residue_idx
+        state.residue_info = _format_residue_info(residue_idx, state.current_frame)
+        state.show_residue_info = True
+        state.search_active = False
+        state.search_query = ""
+        ctrl.update_view()
+
+
+@ctrl.add("clear_search")
+def clear_search():
+    """Clear search results."""
+    state.search_query = ""
+    state.search_results = []
+    state.search_active = False
+
+
+# -----------------------------------------------------------------------------
+# New Feature: Multi-selection controllers
+# -----------------------------------------------------------------------------
+@ctrl.add("toggle_multi_select")
+def toggle_multi_select():
+    """Toggle multi-selection mode."""
+    state.multi_select_enabled = not state.multi_select_enabled
+    if not state.multi_select_enabled:
+        state.selected_residues = []
+        state.multi_select_metrics = {}
+
+
+@ctrl.add("add_to_selection")
+def add_to_selection(residue_idx):
+    """Add residue to multi-selection."""
+    if state.multi_select_enabled and 0 <= residue_idx < NUM_RESIDUES:
+        if residue_idx not in state.selected_residues:
+            state.selected_residues = state.selected_residues + [residue_idx]
+            state.multi_select_metrics = _get_multi_select_metrics()
+
+
+@ctrl.add("remove_from_selection")
+def remove_from_selection(residue_idx):
+    """Remove residue from multi-selection."""
+    if residue_idx in state.selected_residues:
+        state.selected_residues = [r for r in state.selected_residues if r != residue_idx]
+        state.multi_select_metrics = _get_multi_select_metrics()
+
+
+@ctrl.add("clear_selection")
+def clear_selection():
+    """Clear all selected residues."""
+    state.selected_residues = []
+    state.multi_select_metrics = {}
+
+
+# -----------------------------------------------------------------------------
+# New Feature: Hover tooltip controllers
+# -----------------------------------------------------------------------------
+@ctrl.add("on_vtk_hover")
+def on_vtk_hover(event):
+    """Handle hover events on the VTK view with throttling to avoid performance issues."""
+    global _last_hover_time
+    
+    if not state.hover_enabled or not event:
+        state.hover_tooltip_text = ""
+        state.hover_residue_idx = -1
+        return
+    
+    # Throttle hover events to avoid excessive processing
+    current_time = time.time() * 1000
+    if current_time - _last_hover_time < HOVER_THROTTLE_MS:
+        return
+    _last_hover_time = current_time
+    
+    x = event.get("x", 0)
+    y = event.get("y", 0)
+    
+    try:
+        residue_idx = _perform_pick(int(x), int(y))
+        if residue_idx >= 0:
+            state.hover_residue_idx = residue_idx
+            state.hover_tooltip_text = _get_hover_tooltip(residue_idx)
+        else:
+            state.hover_residue_idx = -1
+            state.hover_tooltip_text = ""
+    except (ValueError, TypeError):
+        state.hover_residue_idx = -1
+        state.hover_tooltip_text = ""
+
+
+# -----------------------------------------------------------------------------
+# New Feature: Bookmark views controllers
+# -----------------------------------------------------------------------------
+@ctrl.add("save_bookmark")
+def save_bookmark(name=None):
+    """Save current view as a bookmark."""
+    bookmark_name = name or state.bookmark_name or f"View {len(state.bookmarks) + 1}"
+    
+    bookmark = {
+        "name": bookmark_name,
+        "frame": state.current_frame,
+        "metric": state.current_metric,
+        "camera": _get_camera_state(),
+    }
+    
+    state.bookmarks = state.bookmarks + [bookmark]
+    state.bookmark_name = ""
+    state.status_message = f"Bookmark '{bookmark_name}' saved"
+
+
+@ctrl.add("load_bookmark")
+def load_bookmark(index):
+    """Load a saved bookmark."""
+    if 0 <= index < len(state.bookmarks):
+        bookmark = state.bookmarks[index]
+        
+        state.current_frame = bookmark.get("frame", 0)
+        state.current_metric = bookmark.get("metric", DEFAULT_METRIC)
+        
+        if "camera" in bookmark:
+            _set_camera_state(bookmark["camera"])
+        
+        state.status_message = f"Loaded bookmark '{bookmark.get('name', 'Unknown')}'"
+        ctrl.update_view()
+
+
+@ctrl.add("delete_bookmark")
+def delete_bookmark(index):
+    """Delete a bookmark."""
+    if 0 <= index < len(state.bookmarks):
+        bookmark_name = state.bookmarks[index].get("name", "Unknown")
+        state.bookmarks = [b for i, b in enumerate(state.bookmarks) if i != index]
+        state.status_message = f"Deleted bookmark '{bookmark_name}'"
+
+
+# -----------------------------------------------------------------------------
+# New Feature: Export snapshot controller
+# -----------------------------------------------------------------------------
+@ctrl.add("export_snapshot")
+def export_snapshot():
+    """Export current view as PNG image."""
+    # Create window-to-image filter
+    w2if = vtk.vtkWindowToImageFilter()
+    w2if.SetInput(render_window)
+    w2if.SetScale(2)  # Higher resolution
+    w2if.SetInputBufferTypeToRGBA()
+    w2if.ReadFrontBufferOff()
+    w2if.Update()
+    
+    # Write to PNG using time.time() for reliable timestamp
+    writer = vtk.vtkPNGWriter()
+    timestamp = int(time.time() * 1000)
+    filename = f"ribbon_snapshot_{timestamp}.png"
+    writer.SetFileName(filename)
+    writer.SetInputConnection(w2if.GetOutputPort())
+    writer.Write()
+    
+    state.status_message = f"Snapshot saved as {filename}"
+    return filename
+
+
 with SinglePageLayout(server) as layout:
     layout.title.set_text("Protein Ribbon · Trame (Interactive)")
 
     with layout.toolbar:
+        # Animation playback controls
+        vuetify.VBtn(
+            icon=True,
+            small=True,
+            click=ctrl.animation_step_backward,
+            children=[vuetify.VIcon("mdi-skip-previous", small=True)],
+        )
+        vuetify.VBtn(
+            icon=True,
+            small=True,
+            click=ctrl.toggle_animation,
+            children=[
+                vuetify.VIcon(
+                    "{{ animation_playing ? 'mdi-pause' : 'mdi-play' }}",
+                    small=True,
+                )
+            ],
+        )
+        vuetify.VBtn(
+            icon=True,
+            small=True,
+            click=ctrl.animation_step_forward,
+            children=[vuetify.VIcon("mdi-skip-next", small=True)],
+        )
+        vuetify.VSelect(
+            label="Speed",
+            dense=True,
+            hide_details=True,
+            items=("animation_speed_options", []),
+            v_model=("animation_speed", 10),
+            style="max-width: 90px; margin-left: 8px;",
+        )
+        
+        vuetify.VDivider(vertical=True, classes="mx-2")
+        
         vuetify.VSpacer()
         vuetify.VSelect(
             label="Metric",
@@ -1103,17 +1557,48 @@ with SinglePageLayout(server) as layout:
                                 click=ctrl.clear_measurement,
                                 classes="ml-2",
                             )
+                            
+                            vuetify.VDivider(vertical=True, classes="mx-2")
+                            
+                            # New Feature: Multi-select toggle
+                            vuetify.VCheckbox(
+                                label="Multi",
+                                dense=True,
+                                hide_details=True,
+                                v_model=("multi_select_enabled", False),
+                                classes="mr-2",
+                            )
+                            
+                            vuetify.VDivider(vertical=True, classes="mx-2")
+                            
+                            # New Feature: Export snapshot
+                            vuetify.VBtn(
+                                icon=True,
+                                small=True,
+                                click=ctrl.export_snapshot,
+                                children=[vuetify.VIcon("mdi-camera", small=True)],
+                                title="Export snapshot",
+                            )
                         
-                        # VTK View with click interaction support
-                        with vuetify.VCardText(classes="flex-grow-1 pa-0"):
+                        # VTK View with click and hover interaction support
+                        with vuetify.VCardText(classes="flex-grow-1 pa-0", style="position: relative;"):
                             # Use VtkRemoteView for better interaction support
                             # Enable picking and selection for residue interaction
                             view = vtk_widgets.VtkRemoteView(
                                 render_window,
                                 ref="ribbonView",
-                                interactor_events=("events", ["LeftButtonPress"]),
+                                interactor_events=("events", ["LeftButtonPress", "MouseMove"]),
                                 LeftButtonPress=(ctrl.on_vtk_click, "[$event]"),
+                                MouseMove=(ctrl.on_vtk_hover, "[$event]"),
                             )
+                            
+                            # Hover tooltip overlay
+                            with html.Div(
+                                v_if="hover_tooltip_text && hover_enabled",
+                                style="position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.8); padding: 4px 8px; border-radius: 4px; pointer-events: none;",
+                                classes="caption white--text",
+                            ):
+                                html.Span("{{ hover_tooltip_text }}")
                         
                         # Status bar with measurement result
                         with vuetify.VCardActions(classes="flex-grow-0"):
@@ -1223,6 +1708,122 @@ with SinglePageLayout(server) as layout:
                                         html.Span("{{ residue_info.metrics?.tica?.toFixed(3) || 'N/A' }}"),
                                     ], classes="body-2")
                                     html.Div("{{ residue_info.explanations?.tica }}", classes="caption grey--text")
+                        
+                        vuetify.VDivider()
+                        
+                        # New Feature: Residue Search
+                        with vuetify.VCardText(classes="pa-2"):
+                            html.Div("Search Residue", classes="subtitle-2 white--text mb-2")
+                            with vuetify.VTextField(
+                                v_model=("search_query", ""),
+                                label="Search by name/number",
+                                dense=True,
+                                hide_details=True,
+                                clearable=True,
+                                prepend_inner_icon="mdi-magnify",
+                                __events=["input"],
+                                input=(ctrl.search_residue, "[$event.target.value]"),
+                            ):
+                                pass
+                            
+                            # Search results list
+                            with vuetify.VList(
+                                dense=True,
+                                classes="pa-0 mt-2",
+                                v_if="search_results.length > 0",
+                                style="max-height: 150px; overflow-y: auto;",
+                            ):
+                                with vuetify.VListItem(
+                                    v_for="(result, i) in search_results",
+                                    key="i",
+                                    dense=True,
+                                    click=(ctrl.go_to_residue, "[result.index]"),
+                                ):
+                                    vuetify.VListItemContent(
+                                        children=[
+                                            html.Span("{{ result.display }}", classes="body-2"),
+                                        ]
+                                    )
+                        
+                        vuetify.VDivider()
+                        
+                        # New Feature: Multi-selection metrics summary
+                        with vuetify.VCard(flat=True, classes="ma-2", v_if="multi_select_enabled && selected_residues.length > 0", style="background: #2d2d2d;"):
+                            with vuetify.VCardTitle(classes="py-2"):
+                                html.Span("Selection ({{ selected_residues.length }} residues)", classes="subtitle-2")
+                                vuetify.VSpacer()
+                                vuetify.VBtn(icon=True, small=True, click=ctrl.clear_selection, children=[
+                                    vuetify.VIcon("mdi-close", small=True)
+                                ])
+                            with vuetify.VCardText(classes="py-1"):
+                                with html.Div(v_if="multi_select_metrics.hotspot", classes="mb-1"):
+                                    html.Div([
+                                        html.Strong("Hotspot: "),
+                                        html.Span("mean={{ multi_select_metrics.hotspot?.mean?.toFixed(3) }}, range=[{{ multi_select_metrics.hotspot?.min?.toFixed(3) }}-{{ multi_select_metrics.hotspot?.max?.toFixed(3) }}]"),
+                                    ], classes="caption")
+                                with html.Div(v_if="multi_select_metrics.rmsf", classes="mb-1"):
+                                    html.Div([
+                                        html.Strong("RMSF: "),
+                                        html.Span("mean={{ multi_select_metrics.rmsf?.mean?.toFixed(3) }}, range=[{{ multi_select_metrics.rmsf?.min?.toFixed(3) }}-{{ multi_select_metrics.rmsf?.max?.toFixed(3) }}]"),
+                                    ], classes="caption")
+                        
+                        vuetify.VDivider()
+                        
+                        # New Feature: Bookmarks
+                        with vuetify.VCardText(classes="pa-2"):
+                            html.Div("Bookmarks", classes="subtitle-2 white--text mb-2")
+                            with vuetify.VRow(dense=True, classes="mb-2"):
+                                with vuetify.VCol(cols=8, classes="py-0"):
+                                    vuetify.VTextField(
+                                        v_model=("bookmark_name", ""),
+                                        label="Name",
+                                        dense=True,
+                                        hide_details=True,
+                                    )
+                                with vuetify.VCol(cols=4, classes="py-0"):
+                                    vuetify.VBtn(
+                                        small=True,
+                                        color="primary",
+                                        click=ctrl.save_bookmark,
+                                        children=["Save"],
+                                    )
+                            
+                            # Bookmarks list
+                            with vuetify.VList(
+                                dense=True,
+                                classes="pa-0",
+                                v_if="bookmarks.length > 0",
+                                style="max-height: 150px; overflow-y: auto;",
+                            ):
+                                with vuetify.VListItem(
+                                    v_for="(bookmark, i) in bookmarks",
+                                    key="i",
+                                    dense=True,
+                                ):
+                                    vuetify.VListItemContent(
+                                        children=[
+                                            html.Span("{{ bookmark.name }}", classes="body-2"),
+                                            html.Span(" (Frame {{ bookmark.frame }})", classes="caption grey--text"),
+                                        ]
+                                    )
+                                    vuetify.VListItemAction(
+                                        children=[
+                                            vuetify.VBtn(
+                                                icon=True,
+                                                x_small=True,
+                                                click=(ctrl.load_bookmark, "[i]"),
+                                                children=[vuetify.VIcon("mdi-restore", x_small=True)],
+                                            ),
+                                            vuetify.VBtn(
+                                                icon=True,
+                                                x_small=True,
+                                                click=(ctrl.delete_bookmark, "[i]"),
+                                                children=[vuetify.VIcon("mdi-delete", x_small=True)],
+                                            ),
+                                        ]
+                                    )
+                        
+                        vuetify.VDivider()
                         
                         # Instructions when no residue selected
                         with vuetify.VCardText(v_if="!show_residue_info", classes="caption grey--text"):
