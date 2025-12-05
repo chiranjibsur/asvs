@@ -185,11 +185,15 @@ def test_distance_calculation():
     # First update geometry to populate CA positions
     trame_ribbon_app.update_ribbon_geometry(0, 'hotspot')
     
+    # Maximum reasonable CA-CA distance in proteins (in Angstroms)
+    MAX_REASONABLE_DISTANCE_ANGSTROM = 100
+    
     # Test distance between first two residues
     if len(trame_ribbon_app._ca_positions_cache) >= 2:
         dist = trame_ribbon_app._calculate_distance(0, 1)
         assert dist > 0, "Distance should be positive"
-        assert dist < 100, "Distance should be reasonable (< 100 Å)"
+        assert dist < MAX_REASONABLE_DISTANCE_ANGSTROM, \
+            f"Distance should be reasonable (< {MAX_REASONABLE_DISTANCE_ANGSTROM} Å)"
         print(f"  Distance between residue 0 and 1: {dist:.2f} Å")
     
     print("✓ Distance calculation works")

@@ -298,6 +298,12 @@ contact_actors: List[vtk.vtkActor] = []
 _contacts_visible = False
 _ca_positions_cache: List[Tuple[float, float, float]] = []
 
+# Constants for contact visualization
+MIN_CONTACT_RESIDUE_SEPARATION = 3  # Skip close neighbors (backbone)
+CONTACT_COLOR_MIN_GREEN = 0.3  # Min green component for low frequency
+CONTACT_COLOR_GREEN_RANGE = 0.4  # Green range for frequency gradient
+NUMERICAL_EPSILON = 1e-10  # Tolerance for floating point comparisons
+
 def _get_top_contacts(n: int = 50) -> List[Dict]:
     """Get top N contacts sorted by frequency."""
     contacts = CONTACTS_DATA.get("contacts", [])
@@ -352,15 +358,16 @@ def _build_contact_actors():
             continue
         if res1 >= len(_ca_positions_cache) or res2 >= len(_ca_positions_cache):
             continue
-        if abs(res1 - res2) <= 3:  # Skip close neighbors
+        if abs(res1 - res2) <= MIN_CONTACT_RESIDUE_SEPARATION:
             continue
             
         pos1 = _ca_positions_cache[res1]
         pos2 = _ca_positions_cache[res2]
         
-        # Color based on frequency
+        # Color based on frequency (orange gradient)
         freq = contact.get("frequency", 0.5)
-        color = (1.0, 0.3 + 0.4 * (1 - freq), 0.0)  # Orange gradient
+        green_component = CONTACT_COLOR_MIN_GREEN + CONTACT_COLOR_GREEN_RANGE * (1 - freq)
+        color = (1.0, green_component, 0.0)
         
         actor = _create_contact_line_actor(pos1, pos2, color)
         contact_actors.append(actor)
@@ -412,14 +419,18 @@ def _calculate_angle(idx1: int, idx2: int, idx3: int) -> float:
     mag1 = math.sqrt(sum(a ** 2 for a in v1))
     mag2 = math.sqrt(sum(a ** 2 for a in v2))
     
-    if mag1 == 0 or mag2 == 0:
+    # Use epsilon for numerical stability with floating point comparisons
+    if mag1 < NUMERICAL_EPSILON or mag2 < NUMERICAL_EPSILON:
         return 0.0
     
     cos_angle = max(-1.0, min(1.0, dot / (mag1 * mag2)))
     return math.degrees(math.acos(cos_angle))
 
-def _create_measurement_line(idx1: int, idx2: int, color: Tuple[float, float, float] = (0.0, 1.0, 1.0)) -> vtk.vtkActor:
-    """Create a dashed line actor for measurement visualization."""
+def _create_measurement_line(idx1: int, idx2: int, color: Tuple[float, float, float] = (0.0, 1.0, 1.0)) -> Optional[vtk.vtkActor]:
+    """Create a line actor for measurement visualization.
+    
+    Returns None if indices are out of bounds.
+    """
     if idx1 >= len(_ca_positions_cache) or idx2 >= len(_ca_positions_cache):
         return None
     
