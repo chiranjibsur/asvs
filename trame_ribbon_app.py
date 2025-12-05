@@ -270,8 +270,28 @@ render_window = vtk.vtkRenderWindow()
 render_window.AddRenderer(renderer)
 render_window.SetSize(1280, 720)
 
+# -----------------------------------------------------------------------------
+# VTK Interactor and Picker setup for click interactions
+# -----------------------------------------------------------------------------
+interactor = vtk.vtkRenderWindowInteractor()
+interactor.SetRenderWindow(render_window)
+interactor_style = vtk.vtkInteractorStyleTrackballCamera()
+interactor.SetInteractorStyle(interactor_style)
+
+# Cell picker for selecting ribbon cells (maps to residues)
+cell_picker = vtk.vtkCellPicker()
+cell_picker.SetTolerance(0.005)
+
+# Point picker as backup for more precise picking
+point_picker = vtk.vtkPointPicker()
+point_picker.SetTolerance(0.01)
+
 # Track whether camera has been reset once
 _scene_initialized = False
+
+# Track last pick for interaction state
+_last_pick_cell_id = -1
+_last_pick_point_id = -1
 
 # -----------------------------------------------------------------------------
 # Task 1: Clipping plane setup
@@ -290,6 +310,53 @@ def _update_clip_bounds():
     ribbon_output = ribbon_filter.GetOutput()
     if ribbon_output and ribbon_output.GetNumberOfPoints() > 0:
         _ribbon_bounds = list(ribbon_output.GetBounds())
+
+
+def _pick_position_to_residue(pick_pos: Tuple[float, float, float]) -> int:
+    """Convert a 3D pick position to the nearest residue index.
+    
+    Uses the cached CA positions to find the closest residue to the pick point.
+    Returns -1 if no valid residue found.
+    """
+    if not _ca_positions_cache or not pick_pos:
+        return -1
+    
+    min_dist = float('inf')
+    closest_idx = -1
+    
+    for idx, ca_pos in enumerate(_ca_positions_cache):
+        dist_sq = sum((a - b) ** 2 for a, b in zip(pick_pos, ca_pos))
+        if dist_sq < min_dist:
+            min_dist = dist_sq
+            closest_idx = idx
+    
+    # Only accept picks within a reasonable distance (e.g., 5 Angstroms)
+    MAX_PICK_DISTANCE = 5.0
+    if math.sqrt(min_dist) > MAX_PICK_DISTANCE:
+        return -1
+    
+    return closest_idx
+
+
+def _perform_pick(x: int, y: int) -> int:
+    """Perform a VTK pick at screen coordinates and return residue index.
+    
+    Uses cell picker first, falls back to point picker if needed.
+    Returns -1 if no valid pick.
+    """
+    # Try cell picker first
+    if cell_picker.Pick(x, y, 0, renderer):
+        pick_pos = cell_picker.GetPickPosition()
+        if pick_pos and pick_pos != (0, 0, 0):
+            return _pick_position_to_residue(pick_pos)
+    
+    # Fall back to point picker
+    if point_picker.Pick(x, y, 0, renderer):
+        pick_pos = point_picker.GetPickPosition()
+        if pick_pos and pick_pos != (0, 0, 0):
+            return _pick_position_to_residue(pick_pos)
+    
+    return -1
 
 # -----------------------------------------------------------------------------
 # Task 2: Contact line visualization setup
@@ -870,6 +937,65 @@ def close_residue_info():
     state.selected_residue_idx = -1
 
 
+@ctrl.add("on_vtk_click")
+def on_vtk_click(event):
+    """Handle click events on the VTK view for residue picking.
+    
+    The event contains screen coordinates that we use to perform VTK picking.
+    This connects user mouse clicks to the measurement and info display system.
+    """
+    if not event:
+        return
+    
+    # Get click position from event
+    # VtkLocalView sends position as { x, y, ... }
+    x = event.get("x", event.get("position", {}).get("x", 0))
+    y = event.get("y", event.get("position", {}).get("y", 0))
+    
+    if x is None or y is None:
+        return
+    
+    # Convert to integers (screen coordinates)
+    try:
+        x = int(x)
+        y = int(y)
+    except (ValueError, TypeError):
+        return
+    
+    # Perform VTK picking to find residue
+    residue_idx = _perform_pick(x, y)
+    
+    if residue_idx >= 0:
+        _handle_residue_pick(residue_idx)
+        ctrl.update_view()
+
+
+@ctrl.add("on_vtk_select")
+def on_vtk_select(selection_info):
+    """Handle selection events from VTK view.
+    
+    This is called when user selects geometry in the 3D view.
+    """
+    if not selection_info:
+        return
+    
+    # Try to extract residue information from selection
+    # Selection info format depends on VTK widget configuration
+    if isinstance(selection_info, dict):
+        # Check for point ID or cell ID
+        point_id = selection_info.get("pointId", selection_info.get("point_id", -1))
+        cell_id = selection_info.get("cellId", selection_info.get("cell_id", -1))
+        
+        # Map point/cell ID to residue (approximate based on spline subdivision)
+        if point_id >= 0 and NUM_RESIDUES > 0:
+            # The spline filter subdivides, so we need to map back
+            # Rough approximation: point_id / subdivision_factor
+            residue_idx = min(point_id // 3, NUM_RESIDUES - 1)  # Assuming ~3x subdivision
+            if 0 <= residue_idx < NUM_RESIDUES:
+                _handle_residue_pick(residue_idx)
+                ctrl.update_view()
+
+
 with SinglePageLayout(server) as layout:
     layout.title.set_text("Protein Ribbon · Trame (Interactive)")
 
@@ -978,9 +1104,16 @@ with SinglePageLayout(server) as layout:
                                 classes="ml-2",
                             )
                         
-                        # VTK View
+                        # VTK View with click interaction support
                         with vuetify.VCardText(classes="flex-grow-1 pa-0"):
-                            view = vtk_widgets.VtkLocalView(render_window, ref="ribbonView")
+                            # Use VtkRemoteView for better interaction support
+                            # Enable picking and selection for residue interaction
+                            view = vtk_widgets.VtkRemoteView(
+                                render_window,
+                                ref="ribbonView",
+                                interactor_events=("events", ["LeftButtonPress"]),
+                                LeftButtonPress=(ctrl.on_vtk_click, "[$event]"),
+                            )
                         
                         # Status bar with measurement result
                         with vuetify.VCardActions(classes="flex-grow-0"):

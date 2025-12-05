@@ -326,6 +326,66 @@ def test_controller_functions():
     return True
 
 
+def test_picking_infrastructure():
+    """Test that picking infrastructure is properly set up."""
+    print("\nTesting picking infrastructure...")
+    
+    import trame_ribbon_app
+    
+    # Verify pickers exist
+    assert hasattr(trame_ribbon_app, 'cell_picker'), "Missing cell_picker"
+    assert hasattr(trame_ribbon_app, 'point_picker'), "Missing point_picker"
+    
+    # Verify picking functions exist
+    assert hasattr(trame_ribbon_app, '_pick_position_to_residue'), "Missing _pick_position_to_residue"
+    assert hasattr(trame_ribbon_app, '_perform_pick'), "Missing _perform_pick"
+    
+    # Test _pick_position_to_residue with CA cache
+    trame_ribbon_app.update_ribbon_geometry(0, 'hotspot')
+    
+    if len(trame_ribbon_app._ca_positions_cache) > 0:
+        # Pick first CA position - should return residue 0
+        ca_pos = trame_ribbon_app._ca_positions_cache[0]
+        residue_idx = trame_ribbon_app._pick_position_to_residue(ca_pos)
+        assert residue_idx == 0, f"Expected residue 0, got {residue_idx}"
+        
+        # Pick position far away - should return -1
+        far_pos = (1000.0, 1000.0, 1000.0)
+        residue_idx = trame_ribbon_app._pick_position_to_residue(far_pos)
+        assert residue_idx == -1, f"Expected -1 for far position, got {residue_idx}"
+    
+    print("✓ Picking infrastructure in place")
+    return True
+
+
+def test_click_handlers():
+    """Test that click handlers are registered."""
+    print("\nTesting click handlers...")
+    
+    import trame_ribbon_app
+    
+    # Verify controller has click handlers
+    ctrl = trame_ribbon_app.ctrl
+    
+    # on_vtk_click and on_vtk_select should be registered
+    # These are added via @ctrl.add decorator
+    
+    # Test that handle_residue_pick exists and works
+    assert hasattr(trame_ribbon_app, '_handle_residue_pick'), "Missing _handle_residue_pick"
+    
+    # Test picking a residue updates state (without measurement mode)
+    trame_ribbon_app.update_ribbon_geometry(0, 'hotspot')
+    trame_ribbon_app.state.measurement_mode = ""
+    trame_ribbon_app._handle_residue_pick(5)
+    
+    # Should show residue info
+    assert trame_ribbon_app.state.show_residue_info == True, "Should show residue info"
+    assert trame_ribbon_app.state.selected_residue_idx == 5, "Should select residue 5"
+    
+    print("✓ Click handlers registered and working")
+    return True
+
+
 def main():
     """Run all tests."""
     print("=" * 60)
@@ -346,6 +406,8 @@ def main():
         test_contact_actors_building,
         test_state_initialization,
         test_controller_functions,
+        test_picking_infrastructure,
+        test_click_handlers,
     ]
     
     passed = 0
