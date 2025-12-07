@@ -1044,12 +1044,13 @@
     red_white_blue: {
       name: 'Red-White-Blue',
       desc: 'Blue (low) → White (mid) → Red (high)',
-      cssGradient: 'linear-gradient(to right, #08306b, #2171b5, #4292c6, #6baed6, #ffffff, #fb6a4a, #ef3b2c, #cb181d, #67000d)'
+      cssGradient: 'linear-gradient(to right, #08306b, #2171b5, #4292c6, #6baed6, #ffffff, #fcbba1, #fb6a4a, #ef3b2c, #cb181d, #67000d)'
     }
   };
 
   // Red-White-Blue colormap with smooth gradient shades
   // Blue = low values, White = mid values, Red = high values
+  // Adjusted for better red visibility - starts transitioning to red earlier
   function colorRedWhiteBlue(t) {
     t = Math.max(0, Math.min(1, t));
     const c = new THREE.Color();
@@ -1057,13 +1058,14 @@
     // Stops: dark blue -> medium blue -> light blue -> white -> light red -> medium red -> dark red
     const stops = [
       { t: 0.0, r: 0x08/255, g: 0x30/255, b: 0x6b/255 },    // Dark blue
-      { t: 0.125, r: 0x21/255, g: 0x71/255, b: 0xb5/255 },  // Medium-dark blue
-      { t: 0.25, r: 0x42/255, g: 0x92/255, b: 0xc6/255 },   // Medium blue
-      { t: 0.375, r: 0x6b/255, g: 0xae/255, b: 0xd6/255 },  // Light-medium blue
+      { t: 0.1, r: 0x21/255, g: 0x71/255, b: 0xb5/255 },    // Medium-dark blue
+      { t: 0.2, r: 0x42/255, g: 0x92/255, b: 0xc6/255 },    // Medium blue
+      { t: 0.35, r: 0x6b/255, g: 0xae/255, b: 0xd6/255 },   // Light-medium blue
       { t: 0.5, r: 1.0, g: 1.0, b: 1.0 },                    // White
-      { t: 0.625, r: 0xfb/255, g: 0x6a/255, b: 0x4a/255 },  // Light-medium red
+      { t: 0.55, r: 0xfc/255, g: 0xbb/255, b: 0xa1/255 },   // Very light red (start earlier)
+      { t: 0.65, r: 0xfb/255, g: 0x6a/255, b: 0x4a/255 },   // Light-medium red
       { t: 0.75, r: 0xef/255, g: 0x3b/255, b: 0x2c/255 },   // Medium red
-      { t: 0.875, r: 0xcb/255, g: 0x18/255, b: 0x1d/255 },  // Medium-dark red
+      { t: 0.85, r: 0xcb/255, g: 0x18/255, b: 0x1d/255 },   // Medium-dark red
       { t: 1.0, r: 0x67/255, g: 0x00/255, b: 0x0d/255 }     // Dark red
     ];
     

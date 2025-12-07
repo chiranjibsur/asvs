@@ -120,16 +120,18 @@ METRIC_COLORMAPS = {
 }
 
 # Single colormap: Red-White-Blue with smooth gradient shades
+# Adjusted for better red visibility - starts transitioning to red earlier
 COLORMAP_PRESETS = {
     "red_white_blue": [
         (0.0, "#08306b"),   # Dark blue (lowest)
-        (0.125, "#2171b5"), # Medium-dark blue
-        (0.25, "#4292c6"),  # Medium blue
-        (0.375, "#6baed6"), # Light-medium blue
+        (0.1, "#2171b5"),   # Medium-dark blue
+        (0.2, "#4292c6"),   # Medium blue
+        (0.35, "#6baed6"),  # Light-medium blue
         (0.5, "#ffffff"),   # White (middle)
-        (0.625, "#fb6a4a"), # Light-medium red
+        (0.55, "#fcbba1"),  # Very light red (start transition earlier)
+        (0.65, "#fb6a4a"),  # Light-medium red
         (0.75, "#ef3b2c"),  # Medium red
-        (0.875, "#cb181d"), # Medium-dark red
+        (0.85, "#cb181d"),  # Medium-dark red
         (1.0, "#67000d"),   # Dark red (highest)
     ],
 }
@@ -1717,10 +1719,10 @@ with SinglePageLayout(server) as layout:
                 # Right side panel
                 with vuetify.VCol(cols=3, classes="fill-height pa-0"):
                     with vuetify.VCard(flat=True, tile=True, classes="fill-height overflow-y-auto", style="background: #1e1e1e;"):
-                        # Color bar legend - Red-White-Blue gradient
+                        # Color bar legend - Red-White-Blue gradient (improved)
                         with vuetify.VCardText(classes="pa-2"):
                             html.Div("{{ color_bar_label }}", classes="subtitle-2 white--text mb-1")
-                            with html.Div(style="height: 20px; background: linear-gradient(to right, #08306b, #4292c6, #ffffff, #ef3b2c, #67000d); border-radius: 4px;"):
+                            with html.Div(style="height: 20px; background: linear-gradient(to right, #08306b, #4292c6, #ffffff, #fcbba1, #fb6a4a, #ef3b2c, #67000d); border-radius: 4px;"):
                                 pass
                             with html.Div(classes="d-flex justify-space-between caption grey--text mt-1"):
                                 html.Span("0.0 (Low)")
