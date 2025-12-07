@@ -1146,6 +1146,23 @@ def close_residue_info():
     state.selected_residue_idx = -1
 
 
+@ctrl.add("test_select_residue")
+def test_select_residue():
+    """Test function to verify residue selection works."""
+    import random
+    # Select a random residue to verify the system works
+    test_idx = random.randint(0, max(0, NUM_RESIDUES - 1))
+    residue = RESIDUES[test_idx] if test_idx < NUM_RESIDUES else {}
+    resname = residue.get("resname", "UNK")
+    resnum = residue.get("resnum", test_idx + 1)
+    
+    state.status_message = f"✓ Test: Selected {resname}{resnum} (index {test_idx})"
+    state.selected_residue_idx = test_idx
+    state.residue_info = _format_residue_info(test_idx, state.current_frame)
+    state.show_residue_info = True
+    ctrl.update_view()
+
+
 @ctrl.add("on_vtk_click")
 def on_vtk_click(event):
     """Handle click events on the VTK view for residue picking.
@@ -1632,14 +1649,25 @@ with SinglePageLayout(server) as layout:
                                 children=[vuetify.VIcon("mdi-camera", small=True)],
                                 title="Export snapshot",
                             )
+                            
+                            # Test button to verify backend works
+                            vuetify.VBtn(
+                                small=True,
+                                color="primary",
+                                click=ctrl.test_select_residue,
+                                children=["Test"],
+                                classes="ml-2",
+                                title="Test residue selection",
+                            )
                         
                         # VTK View with click and hover interaction support
                         with vuetify.VCardText(classes="flex-grow-1 pa-0", style="position: relative;"):
-                            # Use VtkRemoteView for better interaction support
-                            # Enable picking and selection for residue interaction
-                            view = vtk_widgets.VtkRemoteView(
+                            # Use VtkLocalView for better client-side interaction
+                            # This handles geometry on client side with proper event handling
+                            view = vtk_widgets.VtkLocalView(
                                 render_window,
                                 ref="ribbonView",
+                                # Enable interactor events for picking
                                 interactor_events=("events", ["LeftButtonPress", "MouseMove"]),
                                 LeftButtonPress=(ctrl.on_vtk_click, "[$event]"),
                                 MouseMove=(ctrl.on_vtk_hover, "[$event]"),
@@ -1924,6 +1952,7 @@ def start_ribbon_server(address: str = DEFAULT_TRAME_HOST, port: int = DEFAULT_T
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
+            print(f"[Trame Ribbon] Starting server at http://{address}:{port}")
             server.start(address=address, port=port, open_browser=False)
         finally:
             try:
@@ -1935,6 +1964,7 @@ def start_ribbon_server(address: str = DEFAULT_TRAME_HOST, port: int = DEFAULT_T
         global _server_process
         with _server_process_lock:
             if _server_process and _server_process.poll() is None:
+                print(f"[Trame Ribbon] Server already running at http://{address}:{port}")
                 return address, port
 
             cmd = [
@@ -1945,12 +1975,28 @@ def start_ribbon_server(address: str = DEFAULT_TRAME_HOST, port: int = DEFAULT_T
             ]
             env = os.environ.copy()
             env.setdefault("TRAME_DISABLE_SIGNALS", "1")
+            
+            print(f"[Trame Ribbon] Launching background server at http://{address}:{port}")
             _server_process = subprocess.Popen(
                 cmd,
                 env=env,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
             )
+            
+            # Wait a moment for the server to start
+            import time
+            time.sleep(2)
+            
+            # Check if process started successfully
+            if _server_process.poll() is not None:
+                stdout, stderr = _server_process.communicate()
+                print(f"[Trame Ribbon] ERROR: Server failed to start")
+                print(f"[Trame Ribbon] stdout: {stdout.decode() if stdout else 'none'}")
+                print(f"[Trame Ribbon] stderr: {stderr.decode() if stderr else 'none'}")
+            else:
+                print(f"[Trame Ribbon] Server started successfully")
+                
         return address, port
 
     _serve_foreground()
