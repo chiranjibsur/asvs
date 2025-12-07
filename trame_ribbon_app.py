@@ -731,7 +731,8 @@ state.animation_speed_options = [
     {"text": "30 fps", "value": 30},
 ]
 # Animation task reference stored in state for proper cleanup
-_animation_task: Optional[asyncio.Task] = None
+_animation_task = None
+_animation_running = False
 
 # -----------------------------------------------------------------------------
 # New Feature: Secondary structure highlighting state
@@ -1080,6 +1081,10 @@ def _on_state_change(current_frame, current_metric, current_colormap, **_):
 @state.change("clip_enabled", "clip_axis", "clip_position")
 def _on_clip_change(clip_enabled, clip_axis, clip_position, **_):
     _update_clipping(clip_enabled, clip_axis, clip_position)
+    if clip_enabled:
+        state.status_message = f"Clipping {clip_axis}-axis at {clip_position}%"
+    else:
+        state.status_message = "Clipping disabled"
     ctrl.update_view()
 
 
@@ -1088,6 +1093,9 @@ def _on_contacts_change(show_contacts, **_):
     _show_contacts(show_contacts)
     if show_contacts:
         _update_contacts_list()
+        state.status_message = "Contacts visible"
+    else:
+        state.status_message = "Contacts hidden"
     ctrl.update_view()
 
 
@@ -1101,8 +1109,12 @@ def _on_measurement_mode_change(measurement_mode, **_):
     state.measurement_picks_display = ""
     _clear_measurement_actors()
     
-    if measurement_mode:
-        state.status_message = f"Measurement mode: {measurement_mode.title()}. Click residues to measure."
+    if measurement_mode == "distance":
+        state.status_message = "📏 Click 2 residues to measure distance"
+    elif measurement_mode == "angle":
+        state.status_message = "📐 Click 3 residues to measure angle"
+    else:
+        state.status_message = "Measurement mode off"
     
     ctrl.update_view()
 
@@ -1142,14 +1154,16 @@ def on_vtk_click(event):
     This connects user mouse clicks to the measurement and info display system.
     """
     if not event:
+        state.status_message = "Click detected but no event data"
         return
     
     # Get click position from event
-    # VtkLocalView sends position as { x, y, ... }
+    # VtkRemoteView sends position as { x, y, ... }
     x = event.get("x", event.get("position", {}).get("x", 0))
     y = event.get("y", event.get("position", {}).get("y", 0))
     
     if x is None or y is None:
+        state.status_message = "Click position not available"
         return
     
     # Convert to integers (screen coordinates)
@@ -1157,14 +1171,22 @@ def on_vtk_click(event):
         x = int(x)
         y = int(y)
     except (ValueError, TypeError):
+        state.status_message = "Invalid click coordinates"
         return
     
     # Perform VTK picking to find residue
+    state.status_message = f"Picking at ({x}, {y})..."
     residue_idx = _perform_pick(x, y)
     
     if residue_idx >= 0:
+        residue = RESIDUES[residue_idx] if residue_idx < NUM_RESIDUES else {}
+        resname = residue.get("resname", "UNK")
+        resnum = residue.get("resnum", residue_idx + 1)
+        state.status_message = f"Selected: {resname}{resnum} (index {residue_idx})"
         _handle_residue_pick(residue_idx)
         ctrl.update_view()
+    else:
+        state.status_message = "No residue at click position"
 
 
 @ctrl.add("on_vtk_select")
@@ -1199,45 +1221,76 @@ def on_vtk_select(selection_info):
 @ctrl.add("toggle_animation")
 def toggle_animation():
     """Toggle animation playback."""
-    global _animation_timer
+    global _animation_running, _animation_task
     state.animation_playing = not state.animation_playing
     
     if state.animation_playing:
-        state.status_message = f"Animation playing at {state.animation_speed} fps"
+        state.status_message = f"▶ Playing at {state.animation_speed} fps"
+        _animation_running = True
+        # Schedule animation using server's asynchronous task
+        _start_animation_loop()
     else:
-        state.status_message = "Animation paused"
+        state.status_message = "⏸ Paused"
+        _animation_running = False
+
+
+def _start_animation_loop():
+    """Start the animation loop using Trame's async system."""
+    global _animation_task, _animation_running
+    
+    async def _animation_loop():
+        global _animation_running
+        while _animation_running and state.animation_playing:
+            _animation_step()
+            try:
+                ctrl.update_view()
+            except Exception:
+                pass
+            await asyncio.sleep(1.0 / max(1, state.animation_speed))
+    
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            _animation_task = asyncio.ensure_future(_animation_loop())
+        else:
+            # Create a new event loop if needed
+            _animation_task = asyncio.ensure_future(_animation_loop())
+    except RuntimeError:
+        # No event loop, create one
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        _animation_task = asyncio.ensure_future(_animation_loop())
 
 
 @ctrl.add("animation_step_forward")
 def animation_step_forward():
     """Step animation forward by one frame."""
-    state.current_frame = (state.current_frame + 1) % NUM_FRAMES
+    new_frame = (state.current_frame + 1) % max(1, NUM_FRAMES)
+    state.current_frame = new_frame
+    state.status_message = f"Frame {new_frame} / {NUM_FRAMES - 1}"
 
 
 @ctrl.add("animation_step_backward")  
 def animation_step_backward():
     """Step animation backward by one frame."""
-    state.current_frame = (state.current_frame - 1) % NUM_FRAMES
+    new_frame = (state.current_frame - 1) % max(1, NUM_FRAMES)
+    state.current_frame = new_frame
+    state.status_message = f"Frame {new_frame} / {NUM_FRAMES - 1}"
 
 
 @state.change("animation_playing")
 def _on_animation_change(animation_playing, **_):
     """Handle animation state changes."""
-    global _animation_task
+    global _animation_task, _animation_running
     
-    if animation_playing:
-        # Start animation loop using asyncio
-        async def _animation_loop():
-            while state.animation_playing:
-                _animation_step()
-                ctrl.update_view()
-                await asyncio.sleep(1.0 / state.animation_speed)
-        
-        _animation_task = asyncio.ensure_future(_animation_loop())
-    else:
+    if not animation_playing:
         # Stop animation
+        _animation_running = False
         if _animation_task is not None:
-            _animation_task.cancel()
+            try:
+                _animation_task.cancel()
+            except Exception:
+                pass
             _animation_task = None
 
 
