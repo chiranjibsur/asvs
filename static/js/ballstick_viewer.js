@@ -1214,7 +1214,7 @@
     }
     for (let i = 0; i < atomMeshes.length; i++) {
       const rIdx = atomResidueIdx[i];     // 0-based residue index
-      const t = scores[rIdx] || 0.0;      // 0..1
+      const t = scores[rIdx] ?? 0.0;      // 0..1 (use ?? to handle actual 0 values)
       atomMeshes[i].material.color.copy(getColor(t));
     }
     // Update timeline
@@ -1400,10 +1400,12 @@
       const residueIdx = String(residue.index);
       const resnumStr = String(residue.resnum);
       
-      const hotspotValue = hotspotData[resnumStr] || hotspotData[residueIdx] || 0;
-      const anomalyValue = anomalyData[resnumStr] || anomalyData[residueIdx] || 0;
-      const rmsfValue = rmsfData_local[residueIdx] || 0;
-      const ticaValue = ticaData[residueIdx] || 0;
+      // Look up by residue INDEX first (0-based), fall back to PDB resnum
+      // Use ?? instead of || to handle actual 0 values correctly
+      const hotspotValue = hotspotData[residueIdx] ?? hotspotData[resnumStr] ?? 0;
+      const anomalyValue = anomalyData[residueIdx] ?? anomalyData[resnumStr] ?? 0;
+      const rmsfValue = rmsfData_local[residueIdx] ?? 0;
+      const ticaValue = ticaData[residueIdx] ?? 0;
       
       // Generate detailed explanations for each metric
       const hotspotExplanation = getHotspotExplanation(hotspotValue);

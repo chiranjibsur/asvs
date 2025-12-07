@@ -235,13 +235,14 @@
       const [x, y, z] = xyz[i];
       const resnum = String(residueMap[i]); // PDB residue number as string
       
-      // Get score for this residue
+      // Get score for this residue - look up by residue INDEX (0-based)
       let s;
       const residueIdx = residueMeta.findIndex(r => r.resnum === parseInt(resnum));
       if (residueIdx >= 0) {
-        s = scoreData[String(residueIdx)] || 0.0;
+        // Use ?? to handle actual 0 values correctly
+        s = scoreData[String(residueIdx)] ?? 0.0;
       } else {
-        s = scoreData[resnum] || 0.0;
+        s = scoreData[resnum] ?? 0.0;
       }
       
       const { r, g, b } = colorFromScore01(s);
@@ -376,10 +377,12 @@
       
       const residueIdx = residue ? String(residue.index) : String(resnum);
       
-      const hotspotValue = hotspotData[resnumStr] || hotspotData[residueIdx] || 0;
-      const anomalyValue = anomalyData[resnumStr] || anomalyData[residueIdx] || 0;
-      const rmsfValue = rmsfData[residueIdx] || 0;
-      const ticaValue = ticaData[residueIdx] || 0;
+      // Look up by residue INDEX first (0-based), fall back to PDB resnum
+      // Use ?? instead of || to handle actual 0 values correctly
+      const hotspotValue = hotspotData[residueIdx] ?? hotspotData[resnumStr] ?? 0;
+      const anomalyValue = anomalyData[residueIdx] ?? anomalyData[resnumStr] ?? 0;
+      const rmsfValue = rmsfData[residueIdx] ?? 0;
+      const ticaValue = ticaData[residueIdx] ?? 0;
       
       // Generate detailed explanations for each metric
       const hotspotExplanation = getHotspotExplanation(hotspotValue);

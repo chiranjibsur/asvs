@@ -550,12 +550,17 @@ def _format_residue_info(residue_idx: int, frame: int) -> Dict:
 # Metric helpers
 # -----------------------------------------------------------------------------
 def _residue_value(frame_blob: Dict, residue_idx: int) -> float:
-    """Try multiple keys when looking up residue associated scores."""
+    """Try multiple keys when looking up residue associated scores.
+    
+    Data files are keyed by 0-based residue index (e.g., "0", "1", "2"...).
+    Try the index first, then fall back to resnum for compatibility.
+    """
     residue = RESIDUES[residue_idx]
+    # Priority: 0-based index first (matches data files), then resnum for fallback
     fallbacks = (
-        str(residue.get("resnum")),
-        str(residue_idx + 1),
-        str(residue_idx),
+        str(residue_idx),             # 0-based index (primary key in data files)
+        str(residue.get("resnum")),   # PDB residue number (fallback)
+        str(residue_idx + 1),         # 1-based index (legacy fallback)
     )
     for key in fallbacks:
         if frame_blob and key in frame_blob:
