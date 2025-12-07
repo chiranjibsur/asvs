@@ -106,68 +106,31 @@ METRIC_CONFIG = {
 }
 
 DEFAULT_METRIC = "hotspot"
-DEFAULT_COLORMAP = "viridis"
+DEFAULT_COLORMAP = "red_white_blue"
 
 # -----------------------------------------------------------------------------
-# Metric-specific color maps (Task 5: Improved hotspot color gradients)
-# Each metric has its own distinct color scheme for better differentiation
+# Simplified color scheme: Red-White-Blue gradient for all metrics
+# Blue = low values, White = mid values, Red = high values
 # -----------------------------------------------------------------------------
 METRIC_COLORMAPS = {
-    "hotspot": "viridis",  # Default scientific colormap
-    "anomaly": "anomaly_gradient",  # purple → white → orange
-    "rmsf": "rmsf_gradient",  # navy → light blue → white
-    "tica": "tica_gradient",  # green → yellow
+    "hotspot": "red_white_blue",
+    "anomaly": "red_white_blue",
+    "rmsf": "red_white_blue",
+    "tica": "red_white_blue",
 }
 
+# Single colormap: Red-White-Blue with smooth gradient shades
 COLORMAP_PRESETS = {
-    "viridis": [
-        (0.0, "#440154"),
-        (0.25, "#3e4a89"),
-        (0.5, "#26828e"),
-        (0.75, "#6ece58"),
-        (1.0, "#fde725"),
-    ],
-    "plasma": [
-        (0.0, "#0d0887"),
-        (0.25, "#7c02a8"),
-        (0.5, "#cc4778"),
-        (0.75, "#f89740"),
-        (1.0, "#f0f921"),
-    ],
-    "coolwarm": [
-        (0.0, "#3b4cc0"),
-        (0.25, "#6b8de3"),
-        (0.5, "#dddddd"),
-        (0.75, "#f7895c"),
-        (1.0, "#b40426"),
-    ],
-    "rainbow": [
-        (0.0, "#0000ff"),
-        (0.25, "#00ffff"),
-        (0.5, "#00ff00"),
-        (0.75, "#ffff00"),
-        (1.0, "#ff0000"),
-    ],
-    "bwr": [
-        (0.0, "#0000ff"),
-        (0.5, "#ffffff"),
-        (1.0, "#8b0000"),
-    ],
-    # Task 5: Metric-specific gradient color schemes
-    "anomaly_gradient": [
-        (0.0, "#6b21a8"),  # Purple (low anomaly)
-        (0.5, "#ffffff"),  # White (mid)
-        (1.0, "#f97316"),  # Orange (high anomaly)
-    ],
-    "rmsf_gradient": [
-        (0.0, "#1e3a5f"),  # Navy (low flexibility)
-        (0.5, "#60a5fa"),  # Light blue (mid)
-        (1.0, "#ffffff"),  # White (high flexibility)
-    ],
-    "tica_gradient": [
-        (0.0, "#166534"),  # Green (low importance)
-        (0.5, "#86efac"),  # Light green (mid)
-        (1.0, "#fde047"),  # Yellow (high importance)
+    "red_white_blue": [
+        (0.0, "#08306b"),   # Dark blue (lowest)
+        (0.125, "#2171b5"), # Medium-dark blue
+        (0.25, "#4292c6"),  # Medium blue
+        (0.375, "#6baed6"), # Light-medium blue
+        (0.5, "#ffffff"),   # White (middle)
+        (0.625, "#fb6a4a"), # Light-medium red
+        (0.75, "#ef3b2c"),  # Medium red
+        (0.875, "#cb181d"), # Medium-dark red
+        (1.0, "#67000d"),   # Dark red (highest)
     ],
 }
 
@@ -685,8 +648,9 @@ state.frame_max = max(0, NUM_FRAMES - 1)
 state.metric_options = [
     {"text": cfg["label"], "value": key} for key, cfg in METRIC_CONFIG.items()
 ]
+# Single colormap: Red-White-Blue
 state.colormap_options = [
-    {"text": name.title(), "value": name} for name in COLORMAP_PRESETS.keys()
+    {"text": "Red-White-Blue", "value": "red_white_blue"}
 ]
 
 # Task 1: Clipping state
@@ -1721,15 +1685,15 @@ with SinglePageLayout(server) as layout:
                 # Right side panel
                 with vuetify.VCol(cols=3, classes="fill-height pa-0"):
                     with vuetify.VCard(flat=True, tile=True, classes="fill-height overflow-y-auto", style="background: #1e1e1e;"):
-                        # Task 5: Color bar legend
+                        # Color bar legend - Red-White-Blue gradient
                         with vuetify.VCardText(classes="pa-2"):
                             html.Div("{{ color_bar_label }}", classes="subtitle-2 white--text mb-1")
-                            with html.Div(style="height: 20px; background: linear-gradient(to right, #440154, #26828e, #fde725); border-radius: 4px;"):
+                            with html.Div(style="height: 20px; background: linear-gradient(to right, #08306b, #4292c6, #ffffff, #ef3b2c, #67000d); border-radius: 4px;"):
                                 pass
                             with html.Div(classes="d-flex justify-space-between caption grey--text mt-1"):
-                                html.Span("0.0")
+                                html.Span("0.0 (Low)")
                                 html.Span("0.5")
-                                html.Span("1.0")
+                                html.Span("1.0 (High)")
                         
                         vuetify.VDivider()
                         

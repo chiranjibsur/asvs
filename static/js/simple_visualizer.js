@@ -62,40 +62,29 @@
   const toHex = (n) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, "0");
 
   // ---- Colormap System ----
-  let currentColormap = 'viridis'; // Default to viridis (more visually appealing)
+  let currentColormap = 'red_white_blue'; // Single colormap: Red-White-Blue
   
   const COLORMAPS = {
-    viridis: {
-      name: 'Viridis',
-      cssGradient: 'linear-gradient(to right, #440154, #482878, #3e4a89, #31688e, #26828e, #1f9e89, #35b779, #6ece58, #b5de2b, #fde725)'
-    },
-    plasma: {
-      name: 'Plasma',
-      cssGradient: 'linear-gradient(to right, #0d0887, #5c01a6, #9c179e, #cc4778, #ed7953, #fdb42f, #f0f921)'
-    },
-    coolwarm: {
-      name: 'Cool-Warm',
-      cssGradient: 'linear-gradient(to right, #3b4cc0, #6b8de3, #aac7fd, #dddddd, #f7b89c, #e26952, #b40426)'
-    },
-    rainbow: {
-      name: 'Rainbow',
-      cssGradient: 'linear-gradient(to right, #0000ff, #00ffff, #00ff00, #ffff00, #ff8800, #ff0000)'
-    },
-    bwr: {
-      name: 'Blue-White-Red',
-      cssGradient: 'linear-gradient(to right, #0000ff, #4fa9ff, #ffffff, #ffb6c1, #ff6666, #8b0000)'
+    red_white_blue: {
+      name: 'Red-White-Blue',
+      cssGradient: 'linear-gradient(to right, #08306b, #2171b5, #4292c6, #6baed6, #ffffff, #fb6a4a, #ef3b2c, #cb181d, #67000d)'
     }
   };
 
-  // Viridis colormap
-  function colorViridis(t) {
+  // Red-White-Blue colormap with smooth gradient shades
+  // Blue = low values, White = mid values, Red = high values
+  function colorRedWhiteBlue(t) {
     t = Math.max(0, Math.min(1, t));
     const stops = [
-      { t: 0.0, r: 0x44/255, g: 0x01/255, b: 0x54/255 },
-      { t: 0.25, r: 0x3e/255, g: 0x4a/255, b: 0x89/255 },
-      { t: 0.5, r: 0x26/255, g: 0x82/255, b: 0x8e/255 },
-      { t: 0.75, r: 0x6e/255, g: 0xce/255, b: 0x58/255 },
-      { t: 1.0, r: 0xfd/255, g: 0xe7/255, b: 0x25/255 }
+      { t: 0.0, r: 0x08/255, g: 0x30/255, b: 0x6b/255 },    // Dark blue
+      { t: 0.125, r: 0x21/255, g: 0x71/255, b: 0xb5/255 },  // Medium-dark blue
+      { t: 0.25, r: 0x42/255, g: 0x92/255, b: 0xc6/255 },   // Medium blue
+      { t: 0.375, r: 0x6b/255, g: 0xae/255, b: 0xd6/255 },  // Light-medium blue
+      { t: 0.5, r: 1.0, g: 1.0, b: 1.0 },                    // White
+      { t: 0.625, r: 0xfb/255, g: 0x6a/255, b: 0x4a/255 },  // Light-medium red
+      { t: 0.75, r: 0xef/255, g: 0x3b/255, b: 0x2c/255 },   // Medium red
+      { t: 0.875, r: 0xcb/255, g: 0x18/255, b: 0x1d/255 },  // Medium-dark red
+      { t: 1.0, r: 0x67/255, g: 0x00/255, b: 0x0d/255 }     // Dark red
     ];
     let i = 0;
     while (i < stops.length - 1 && stops[i + 1].t < t) i++;
@@ -104,104 +93,17 @@
     return { r: s1.r + u * (s2.r - s1.r), g: s1.g + u * (s2.g - s1.g), b: s1.b + u * (s2.b - s1.b) };
   }
 
-  // Plasma colormap
-  function colorPlasma(t) {
-    t = Math.max(0, Math.min(1, t));
-    const stops = [
-      { t: 0.0, r: 0x0d/255, g: 0x08/255, b: 0x87/255 },
-      { t: 0.25, r: 0x7c/255, g: 0x02/255, b: 0xa8/255 },
-      { t: 0.5, r: 0xcc/255, g: 0x47/255, b: 0x78/255 },
-      { t: 0.75, r: 0xf8/255, g: 0x97/255, b: 0x40/255 },
-      { t: 1.0, r: 0xf0/255, g: 0xf9/255, b: 0x21/255 }
-    ];
-    let i = 0;
-    while (i < stops.length - 1 && stops[i + 1].t < t) i++;
-    const s1 = stops[i], s2 = stops[Math.min(i + 1, stops.length - 1)];
-    const u = (t - s1.t) / (s2.t - s1.t || 1);
-    return { r: s1.r + u * (s2.r - s1.r), g: s1.g + u * (s2.g - s1.g), b: s1.b + u * (s2.b - s1.b) };
-  }
-
-  // Cool-Warm diverging colormap
-  function colorCoolWarm(t) {
-    t = Math.max(0, Math.min(1, t));
-    const stops = [
-      { t: 0.0, r: 0x3b/255, g: 0x4c/255, b: 0xc0/255 },
-      { t: 0.25, r: 0x6b/255, g: 0x8d/255, b: 0xe3/255 },
-      { t: 0.5, r: 0xdd/255, g: 0xdd/255, b: 0xdd/255 },
-      { t: 0.75, r: 0xf7/255, g: 0x89/255, b: 0x5c/255 },
-      { t: 1.0, r: 0xb4/255, g: 0x04/255, b: 0x26/255 }
-    ];
-    let i = 0;
-    while (i < stops.length - 1 && stops[i + 1].t < t) i++;
-    const s1 = stops[i], s2 = stops[Math.min(i + 1, stops.length - 1)];
-    const u = (t - s1.t) / (s2.t - s1.t || 1);
-    return { r: s1.r + u * (s2.r - s1.r), g: s1.g + u * (s2.g - s1.g), b: s1.b + u * (s2.b - s1.b) };
-  }
-
-  // Rainbow colormap
-  function colorRainbow(t) {
-    t = Math.max(0, Math.min(1, t));
-    const h = (1 - t) * 0.7; // Blue (0.7) to red (0)
-    // HSL to RGB conversion
-    const s = 1.0, l = 0.5;
-    const c = (1 - Math.abs(2 * l - 1)) * s;
-    const x = c * (1 - Math.abs((h * 6) % 2 - 1));
-    const m = l - c / 2;
-    let r, g, b;
-    const hPrime = h * 6;
-    if (hPrime < 1) { r = c; g = x; b = 0; }
-    else if (hPrime < 2) { r = x; g = c; b = 0; }
-    else if (hPrime < 3) { r = 0; g = c; b = x; }
-    else if (hPrime < 4) { r = 0; g = x; b = c; }
-    else if (hPrime < 5) { r = x; g = 0; b = c; }
-    else { r = c; g = 0; b = x; }
-    return { r: r + m, g: g + m, b: b + m };
-  }
-
-  // Blue-White-Red (original)
-  function colorBWR(s) {
-    const t = Math.max(0, Math.min(1, s));
-    let r, g, b;
-    if (t <= 0.2) {
-      const u = t / 0.2;
-      r = 0 + u * 0x4f / 255; g = 0 + u * 0xa9 / 255; b = 1;
-    } else if (t <= 0.4) {
-      const u = (t - 0.2) / 0.2;
-      r = 0x4f / 255 + u * (1 - 0x4f / 255); g = 0xa9 / 255 + u * (1 - 0xa9 / 255); b = 1;
-    } else if (t <= 0.6) {
-      const u = (t - 0.4) / 0.2;
-      r = 1; g = 1 - u * (1 - 0xb6 / 255); b = 1 - u * (1 - 0xc1 / 255);
-    } else if (t <= 0.8) {
-      const u = (t - 0.6) / 0.2;
-      r = 1; g = 0xb6 / 255 - u * (0xb6 / 255 - 0x66 / 255); b = 0xc1 / 255 - u * (0xc1 / 255 - 0x66 / 255);
-    } else {
-      const u = (t - 0.8) / 0.2;
-      r = 1 - u * (1 - 0x8b / 255); g = 0x66 / 255 - u * (0x66 / 255); b = 0x66 / 255 - u * (0x66 / 255);
-    }
-    return { r, g, b };
-  }
-
-  // Get color based on current colormap
+  // Get color - always uses Red-White-Blue
   function colorFromScore01(s) {
     const t = Math.max(0, Math.min(1, s));
-    switch (currentColormap) {
-      case 'viridis': return colorViridis(t);
-      case 'plasma': return colorPlasma(t);
-      case 'coolwarm': return colorCoolWarm(t);
-      case 'rainbow': return colorRainbow(t);
-      case 'bwr': return colorBWR(t);
-      default: return colorViridis(t);
-    }
+    return colorRedWhiteBlue(t);
   }
 
-  // Set colormap and update legend
+  // Set colormap (kept for compatibility but only one colormap now)
   function setColormap(name) {
-    if (COLORMAPS[name]) {
-      currentColormap = name;
-      updateLegendColorbar();
-      return true;
-    }
-    return false;
+    currentColormap = 'red_white_blue';
+    updateLegendColorbar();
+    return true;
   }
 
   // Update legend colorbar based on current colormap
