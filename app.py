@@ -310,10 +310,34 @@ def viewer_ballstick():
 
 @app.route("/viewer/ribbon")
 def viewer_ribbon():
+    """Render the Trame ribbon viewer.
+    
+    The ribbon viewer runs on a separate Trame server (port 9887 by default).
+    This route ensures the server is running and embeds it in an iframe.
+    """
+    print("[Flask] Navigating to Ribbon viewer - ensuring Trame server is running...")
     ensure_ribbon_server()
-    return render_template("ribbon_viewer.html", ribbon_server_url=ribbon_server_url())
+    url = ribbon_server_url()
+    print(f"[Flask] Ribbon server URL: {url}")
+    return render_template("ribbon_viewer.html", ribbon_server_url=url)
 
 # ------------------------------- MAIN ----------------------------------------
 if __name__ == "__main__":
+    print("=" * 60)
+    print("ASVS Molecular Visualizer")
+    print("=" * 60)
+    print()
+    print("Available viewers at http://127.0.0.1:5000:")
+    print("  • Points view:       /viewer")
+    print("  • Ball-and-Stick:    /viewer/ballstick")
+    print("  • Ribbon view:       /viewer/ribbon")
+    print()
+    print("Ribbon viewer features:")
+    print("  ▶ Animation playback (play/pause/step)")
+    print("  ✂ Clipping planes (X/Y/Z)")
+    print("  🔗 Contact visualization")
+    print("  📏 Distance/angle measurements")
+    print("  ℹ Residue info with ML metrics")
+    print()
     # Dev server
     app.run(host="127.0.0.1", port=5000, debug=True)

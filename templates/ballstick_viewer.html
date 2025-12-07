@@ -18,7 +18,7 @@
     /* Legend (enhanced gradient) */
     #legend{position:absolute;right:16px;bottom:16px;width:220px;user-select:none;background:rgba(18,20,24,.55);backdrop-filter:blur(4px);border:1px solid #3a3f4a;border-radius:8px;padding:10px;z-index:50;}
     #legend .title{font:12px/1.3 monospace;color:#c9ceda;margin-bottom:6px;}
-    #legendBar{height:12px;border:1px solid #555;background:linear-gradient(to right,#0000ff,#4fa9ff,#ffffff,#ffb6c1,#ff6666,#8b0000);border-radius:2px;}
+    #legendBar{height:12px;border:1px solid #555;background:linear-gradient(to right,#08306b,#2171b5,#4292c6,#6baed6,#ffffff,#fb6a4a,#ef3b2c,#cb181d,#67000d);border-radius:2px;}
     #legend .ticks{display:flex;justify-content:space-between;font:11px/1.2 monospace;color:#aeb4c2;margin-top:4px;}
     #legend .desc{margin-top:8px;font:11px/1.3 sans-serif;color:#9aa3b2;}
     
@@ -367,16 +367,10 @@
         <span id="speedLbl" style="min-width:32px;font:11px/1 monospace">0.5x</span>
       </div>
     </div>
-    <!-- Colormap Selector -->
+    <!-- Colormap - Single Red-White-Blue scheme -->
     <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px">
-      <label for="colormapSelect" style="font:12px/1 monospace;color:#c9ceda;">Colormap:</label>
-      <select id="colormapSelect" style="padding:6px 10px;background:#1a1c22;color:#e9eaee;border:1px solid #2b2f3a;border-radius:6px;font:12px/1 monospace;cursor:pointer;">
-        <option value="viridis">Viridis (colorblind safe)</option>
-        <option value="plasma">Plasma (warm)</option>
-        <option value="coolwarm">Cool-Warm (diverging)</option>
-        <option value="rainbow">Rainbow</option>
-        <option value="bwr">Blue-White-Red (original)</option>
-      </select>
+      <label style="font:12px/1 monospace;color:#c9ceda;">Colormap: Red-White-Blue</label>
+      <span style="font:11px/1 monospace;color:#9aa3b2;">(Blue = low, White = mid, Red = high)</span>
     </div>
     <div style="display:flex;gap:10px;margin-bottom:12px">
       <button class="btn" id="btnToggleRMSF">Show RMSF</button>

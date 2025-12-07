@@ -1038,48 +1038,35 @@
   }
 
   // ---- Colormap System ----
-  let currentColormap = 'viridis'; // Default to viridis (more visually appealing)
+  let currentColormap = 'red_white_blue'; // Single colormap: Red-White-Blue
   
   const COLORMAPS = {
-    viridis: {
-      name: 'Viridis',
-      desc: 'Perceptually uniform, colorblind friendly',
-      cssGradient: 'linear-gradient(to right, #440154, #482878, #3e4a89, #31688e, #26828e, #1f9e89, #35b779, #6ece58, #b5de2b, #fde725)'
-    },
-    plasma: {
-      name: 'Plasma',
-      desc: 'Warm tones, perceptually uniform',
-      cssGradient: 'linear-gradient(to right, #0d0887, #5c01a6, #9c179e, #cc4778, #ed7953, #fdb42f, #f0f921)'
-    },
-    coolwarm: {
-      name: 'Cool-Warm',
-      desc: 'Diverging blue to red',
-      cssGradient: 'linear-gradient(to right, #3b4cc0, #6b8de3, #aac7fd, #dddddd, #f7b89c, #e26952, #b40426)'
-    },
-    rainbow: {
-      name: 'Rainbow',
-      desc: 'Classic rainbow spectrum',
-      cssGradient: 'linear-gradient(to right, #0000ff, #00ffff, #00ff00, #ffff00, #ff8800, #ff0000)'
-    },
-    bwr: {
-      name: 'Blue-White-Red',
-      desc: 'Diverging colormap (original)',
-      cssGradient: 'linear-gradient(to right, #0000ff, #4fa9ff, #ffffff, #ffb6c1, #ff6666, #8b0000)'
+    red_white_blue: {
+      name: 'Red-White-Blue',
+      desc: 'Blue (low) → White (mid) → Red (high)',
+      cssGradient: 'linear-gradient(to right, #08306b, #2171b5, #4292c6, #6baed6, #ffffff, #fcbba1, #fb6a4a, #ef3b2c, #cb181d, #67000d)'
     }
   };
 
-  // Viridis colormap (perceptually uniform, colorblind friendly)
-  function colorViridis(t) {
+  // Red-White-Blue colormap with smooth gradient shades
+  // Blue = low values, White = mid values, Red = high values
+  // Adjusted for better red visibility - starts transitioning to red earlier
+  function colorRedWhiteBlue(t) {
     t = Math.max(0, Math.min(1, t));
     const c = new THREE.Color();
     
-    // Viridis stops: dark purple -> blue -> teal -> green -> yellow
+    // Stops: dark blue -> medium blue -> light blue -> white -> light red -> medium red -> dark red
     const stops = [
-      { t: 0.0, r: 0x44/255, g: 0x01/255, b: 0x54/255 },
-      { t: 0.25, r: 0x3e/255, g: 0x4a/255, b: 0x89/255 },
-      { t: 0.5, r: 0x26/255, g: 0x82/255, b: 0x8e/255 },
-      { t: 0.75, r: 0x6e/255, g: 0xce/255, b: 0x58/255 },
-      { t: 1.0, r: 0xfd/255, g: 0xe7/255, b: 0x25/255 }
+      { t: 0.0, r: 0x08/255, g: 0x30/255, b: 0x6b/255 },    // Dark blue
+      { t: 0.1, r: 0x21/255, g: 0x71/255, b: 0xb5/255 },    // Medium-dark blue
+      { t: 0.2, r: 0x42/255, g: 0x92/255, b: 0xc6/255 },    // Medium blue
+      { t: 0.35, r: 0x6b/255, g: 0xae/255, b: 0xd6/255 },   // Light-medium blue
+      { t: 0.5, r: 1.0, g: 1.0, b: 1.0 },                    // White
+      { t: 0.55, r: 0xfc/255, g: 0xbb/255, b: 0xa1/255 },   // Very light red (start earlier)
+      { t: 0.65, r: 0xfb/255, g: 0x6a/255, b: 0x4a/255 },   // Light-medium red
+      { t: 0.75, r: 0xef/255, g: 0x3b/255, b: 0x2c/255 },   // Medium red
+      { t: 0.85, r: 0xcb/255, g: 0x18/255, b: 0x1d/255 },   // Medium-dark red
+      { t: 1.0, r: 0x67/255, g: 0x00/255, b: 0x0d/255 }     // Dark red
     ];
     
     let i = 0;
@@ -1096,116 +1083,9 @@
     return c;
   }
 
-  // Plasma colormap (warm, perceptually uniform)
-  function colorPlasma(t) {
-    t = Math.max(0, Math.min(1, t));
-    const c = new THREE.Color();
-    
-    const stops = [
-      { t: 0.0, r: 0x0d/255, g: 0x08/255, b: 0x87/255 },
-      { t: 0.25, r: 0x7c/255, g: 0x02/255, b: 0xa8/255 },
-      { t: 0.5, r: 0xcc/255, g: 0x47/255, b: 0x78/255 },
-      { t: 0.75, r: 0xf8/255, g: 0x97/255, b: 0x40/255 },
-      { t: 1.0, r: 0xf0/255, g: 0xf9/255, b: 0x21/255 }
-    ];
-    
-    let i = 0;
-    while (i < stops.length - 1 && stops[i + 1].t < t) i++;
-    
-    const s1 = stops[i], s2 = stops[Math.min(i + 1, stops.length - 1)];
-    const u = (t - s1.t) / (s2.t - s1.t || 1);
-    
-    c.setRGB(
-      s1.r + u * (s2.r - s1.r),
-      s1.g + u * (s2.g - s1.g),
-      s1.b + u * (s2.b - s1.b)
-    );
-    return c;
-  }
-
-  // Cool-Warm diverging colormap
-  function colorCoolWarm(t) {
-    t = Math.max(0, Math.min(1, t));
-    const c = new THREE.Color();
-    
-    const stops = [
-      { t: 0.0, r: 0x3b/255, g: 0x4c/255, b: 0xc0/255 },
-      { t: 0.25, r: 0x6b/255, g: 0x8d/255, b: 0xe3/255 },
-      { t: 0.5, r: 0xdd/255, g: 0xdd/255, b: 0xdd/255 },
-      { t: 0.75, r: 0xf7/255, g: 0x89/255, b: 0x5c/255 },
-      { t: 1.0, r: 0xb4/255, g: 0x04/255, b: 0x26/255 }
-    ];
-    
-    let i = 0;
-    while (i < stops.length - 1 && stops[i + 1].t < t) i++;
-    
-    const s1 = stops[i], s2 = stops[Math.min(i + 1, stops.length - 1)];
-    const u = (t - s1.t) / (s2.t - s1.t || 1);
-    
-    c.setRGB(
-      s1.r + u * (s2.r - s1.r),
-      s1.g + u * (s2.g - s1.g),
-      s1.b + u * (s2.b - s1.b)
-    );
-    return c;
-  }
-
-  // Rainbow colormap
-  function colorRainbow(t) {
-    t = Math.max(0, Math.min(1, t));
-    const c = new THREE.Color();
-    c.setHSL((1 - t) * 0.7, 1.0, 0.5); // Blue (0.7) to red (0)
-    return c;
-  }
-
-  // Blue-White-Red (original)
-  function colorBWR (t) {
-    t = Math.max(0, Math.min(1, t));
-    const c = new THREE.Color();
-    
-    let r, g, b;
-    
-    if (t <= 0.2) {
-      const u = t / 0.2;
-      r = 0 + u * 0x4f / 255;
-      g = 0 + u * 0xa9 / 255;
-      b = 1;
-    } else if (t <= 0.4) {
-      const u = (t - 0.2) / 0.2;
-      r = 0x4f / 255 + u * (1 - 0x4f / 255);
-      g = 0xa9 / 255 + u * (1 - 0xa9 / 255);
-      b = 1;
-    } else if (t <= 0.6) {
-      const u = (t - 0.4) / 0.2;
-      r = 1;
-      g = 1 - u * (1 - 0xb6 / 255);
-      b = 1 - u * (1 - 0xc1 / 255);
-    } else if (t <= 0.8) {
-      const u = (t - 0.6) / 0.2;
-      r = 1;
-      g = 0xb6 / 255 - u * (0xb6 / 255 - 0x66 / 255);
-      b = 0xc1 / 255 - u * (0xc1 / 255 - 0x66 / 255);
-    } else {
-      const u = (t - 0.8) / 0.2;
-      r = 1 - u * (1 - 0x8b / 255);
-      g = 0x66 / 255 - u * (0x66 / 255);
-      b = 0x66 / 255 - u * (0x66 / 255);
-    }
-    
-    c.setRGB(r, g, b);
-    return c;
-  }
-
-  // Get color based on current colormap
+  // Get color - always uses Red-White-Blue
   function getColor(t) {
-    switch (currentColormap) {
-      case 'viridis': return colorViridis(t);
-      case 'plasma': return colorPlasma(t);
-      case 'coolwarm': return colorCoolWarm(t);
-      case 'rainbow': return colorRainbow(t);
-      case 'bwr': return colorBWR(t);
-      default: return colorViridis(t);
-    }
+    return colorRedWhiteBlue(t);
   }
 
   // Set colormap and update legend
@@ -1248,6 +1128,41 @@
         const data = await config.fetchData(frame);
         metricsCache[metric][frame] = data;
       }
+      
+      // For hotspot, if data is incomplete, compute from other metrics
+      if (metric === 'hotspot') {
+        const hotspotData = metricsCache[metric][frame];
+        const hotspotKeys = Object.keys(hotspotData || {});
+        
+        // Check if hotspot data is incomplete (fewer entries than expected)
+        // If so, compute hotspot as aggregate of anomaly, RMSF, and tICA
+        if (hotspotKeys.length < meta.n_residues * 0.5) {
+          // Load other metrics
+          const anomalyData = await fetchMetricData('anomaly', frame);
+          const rmsfData = await fetchMetricData('rmsf', 0);
+          const ticaData = await fetchMetricData('tica', 0);
+          
+          // Compute aggregated hotspot score for each residue
+          // Formula: hotspot = (anomaly * 0.4 + rmsf * 0.3 + tica * 0.3)
+          const computedHotspot = {};
+          const allKeys = new Set([
+            ...Object.keys(anomalyData || {}),
+            ...Object.keys(rmsfData || {}),
+            ...Object.keys(ticaData || {})
+          ]);
+          
+          for (const key of allKeys) {
+            const anomaly = parseFloat(anomalyData[key]) || 0;
+            const rmsf = parseFloat(rmsfData[key]) || 0;
+            const tica = parseFloat(ticaData[key]) || 0;
+            computedHotspot[key] = anomaly * 0.4 + rmsf * 0.3 + tica * 0.3;
+          }
+          
+          metricsCache[metric][frame] = computedHotspot;
+          return computedHotspot;
+        }
+      }
+      
       return metricsCache[metric][frame];
     }
   }
@@ -1336,7 +1251,7 @@
     }
     for (let i = 0; i < atomMeshes.length; i++) {
       const rIdx = atomResidueIdx[i];     // 0-based residue index
-      const t = scores[rIdx] || 0.0;      // 0..1
+      const t = scores[rIdx] ?? 0.0;      // 0..1 (use ?? to handle actual 0 values)
       atomMeshes[i].material.color.copy(getColor(t));
     }
     // Update timeline
@@ -1522,10 +1437,12 @@
       const residueIdx = String(residue.index);
       const resnumStr = String(residue.resnum);
       
-      const hotspotValue = hotspotData[resnumStr] || hotspotData[residueIdx] || 0;
-      const anomalyValue = anomalyData[resnumStr] || anomalyData[residueIdx] || 0;
-      const rmsfValue = rmsfData_local[residueIdx] || 0;
-      const ticaValue = ticaData[residueIdx] || 0;
+      // Look up by residue INDEX first (0-based), fall back to PDB resnum
+      // Use ?? instead of || to handle actual 0 values correctly
+      const hotspotValue = hotspotData[residueIdx] ?? hotspotData[resnumStr] ?? 0;
+      const anomalyValue = anomalyData[residueIdx] ?? anomalyData[resnumStr] ?? 0;
+      const rmsfValue = rmsfData_local[residueIdx] ?? 0;
+      const ticaValue = ticaData[residueIdx] ?? 0;
       
       // Generate detailed explanations for each metric
       const hotspotExplanation = getHotspotExplanation(hotspotValue);
