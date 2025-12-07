@@ -713,6 +713,12 @@ state.selected_residue_idx = -1
 state.residue_info = {}
 state.show_residue_info = False
 
+# Residue selector options for dropdown
+state.residue_options = [
+    {"text": f"{r.get('resname', 'UNK')}{r.get('resnum', i+1)} ({r.get('chain', 'A')})", "value": i}
+    for i, r in enumerate(RESIDUES)
+][:100]  # Limit to first 100 for performance
+
 # Task 5: Color bar state
 state.color_bar_min = 0.0
 state.color_bar_max = 1.0
@@ -1160,6 +1166,32 @@ def test_select_residue():
     state.selected_residue_idx = test_idx
     state.residue_info = _format_residue_info(test_idx, state.current_frame)
     state.show_residue_info = True
+    ctrl.update_view()
+
+
+@ctrl.add("select_residue_from_dropdown")
+def select_residue_from_dropdown(residue_idx):
+    """Select a residue from the dropdown selector."""
+    if residue_idx is None or residue_idx < 0:
+        return
+    
+    if residue_idx >= NUM_RESIDUES:
+        state.status_message = f"Invalid residue index: {residue_idx}"
+        return
+    
+    residue = RESIDUES[residue_idx] if residue_idx < NUM_RESIDUES else {}
+    resname = residue.get("resname", "UNK")
+    resnum = residue.get("resnum", residue_idx + 1)
+    
+    state.status_message = f"Selected: {resname}{resnum} (residue {residue_idx})"
+    state.selected_residue_idx = residue_idx
+    state.residue_info = _format_residue_info(residue_idx, state.current_frame)
+    state.show_residue_info = True
+    
+    # Handle measurement mode
+    if state.measurement_mode:
+        _handle_residue_pick(residue_idx)
+    
     ctrl.update_view()
 
 
@@ -1649,16 +1681,6 @@ with SinglePageLayout(server) as layout:
                                 children=[vuetify.VIcon("mdi-camera", small=True)],
                                 title="Export snapshot",
                             )
-                            
-                            # Test button to verify backend works
-                            vuetify.VBtn(
-                                small=True,
-                                color="primary",
-                                click=ctrl.test_select_residue,
-                                children=["Test"],
-                                classes="ml-2",
-                                title="Test residue selection",
-                            )
                         
                         # VTK View with click and hover interaction support
                         with vuetify.VCardText(classes="flex-grow-1 pa-0", style="position: relative;"):
@@ -1789,6 +1811,22 @@ with SinglePageLayout(server) as layout:
                                         html.Span("{{ residue_info.metrics?.tica?.toFixed(3) || 'N/A' }}"),
                                     ], classes="body-2")
                                     html.Div("{{ residue_info.explanations?.tica }}", classes="caption grey--text")
+                        
+                        vuetify.VDivider()
+                        
+                        # Residue Selector Dropdown - Easy way to select residues
+                        with vuetify.VCardText(classes="pa-2"):
+                            html.Div("Select Residue", classes="subtitle-2 white--text mb-2")
+                            html.Div("Choose a residue to view its details and ML metrics:", classes="caption grey--text mb-2")
+                            vuetify.VSelect(
+                                label="Residue",
+                                dense=True,
+                                hide_details=True,
+                                items=("residue_options", []),
+                                v_model=("selected_residue_idx", -1),
+                                change=(ctrl.select_residue_from_dropdown, "[$event]"),
+                                clearable=True,
+                            )
                         
                         vuetify.VDivider()
                         
