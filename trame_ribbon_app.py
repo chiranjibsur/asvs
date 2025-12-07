@@ -526,6 +526,15 @@ def _get_residue_metrics(residue_idx: int, frame: int) -> Dict:
         else:
             value = float(source.get(str(residue_idx), 0.0)) if isinstance(source, dict) else 0.0
         result[metric_name] = value
+    
+    # For hotspot, if value is 0 or very low, compute from other metrics
+    # Dynamic Hotspot = aggregate of anomaly (40%) + RMSF (30%) + tICA (30%)
+    if result.get("hotspot", 0) < 0.001:
+        anomaly = result.get("anomaly", 0)
+        rmsf = result.get("rmsf", 0)
+        tica = result.get("tica", 0)
+        result["hotspot"] = anomaly * 0.4 + rmsf * 0.3 + tica * 0.3
+    
     return result
 
 def _format_residue_info(residue_idx: int, frame: int) -> Dict:
@@ -577,7 +586,25 @@ def _metric_values(metric_name: str, frame: int) -> List[float]:
 
     if config["frame_dependent"]:
         frame_blob = source.get(str(frame), {}) if isinstance(source, dict) else {}
-        return [_residue_value(frame_blob, idx) for idx in range(NUM_RESIDUES)]
+        values = [_residue_value(frame_blob, idx) for idx in range(NUM_RESIDUES)]
+        
+        # For hotspot, if data is incomplete, compute from other metrics
+        if metric_name == "hotspot":
+            non_zero_count = sum(1 for v in values if v > 0)
+            # If hotspot data is incomplete (fewer than 50% non-zero), compute aggregate
+            if non_zero_count < NUM_RESIDUES * 0.5:
+                # Compute hotspot as aggregate of anomaly, RMSF, and tICA
+                # Formula: hotspot = (anomaly * 0.4 + rmsf * 0.3 + tica * 0.3)
+                anomaly_values = _metric_values("anomaly", frame)
+                rmsf_values = _metric_values("rmsf", frame)
+                tica_values = _metric_values("tica", frame)
+                
+                values = [
+                    anomaly_values[i] * 0.4 + rmsf_values[i] * 0.3 + tica_values[i] * 0.3
+                    for i in range(NUM_RESIDUES)
+                ]
+        
+        return values
 
     # Static metrics (already normalized dicts)
     return [

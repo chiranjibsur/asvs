@@ -503,6 +503,41 @@
         const data = await config.fetchData(frame);
         metricsCache[metric][frame] = data;
       }
+      
+      // For hotspot, if data is incomplete, compute from other metrics
+      if (metric === 'hotspot') {
+        const hotspotData = metricsCache[metric][frame];
+        const hotspotKeys = Object.keys(hotspotData || {});
+        
+        // Check if hotspot data is incomplete (fewer entries than expected)
+        // If so, compute hotspot as aggregate of anomaly, RMSF, and tICA
+        if (hotspotKeys.length < meta.n_residues * 0.5) {
+          // Load other metrics
+          const anomalyData = await fetchMetricData('anomaly', frame);
+          const rmsfData = await fetchMetricData('rmsf', 0);
+          const ticaData = await fetchMetricData('tica', 0);
+          
+          // Compute aggregated hotspot score for each residue
+          // Formula: hotspot = (anomaly * 0.4 + rmsf * 0.3 + tica * 0.3)
+          const computedHotspot = {};
+          const allKeys = new Set([
+            ...Object.keys(anomalyData || {}),
+            ...Object.keys(rmsfData || {}),
+            ...Object.keys(ticaData || {})
+          ]);
+          
+          for (const key of allKeys) {
+            const anomaly = parseFloat(anomalyData[key]) || 0;
+            const rmsf = parseFloat(rmsfData[key]) || 0;
+            const tica = parseFloat(ticaData[key]) || 0;
+            computedHotspot[key] = anomaly * 0.4 + rmsf * 0.3 + tica * 0.3;
+          }
+          
+          metricsCache[metric][frame] = computedHotspot;
+          return computedHotspot;
+        }
+      }
+      
       return metricsCache[metric][frame];
     }
   }
