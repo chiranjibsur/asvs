@@ -12,8 +12,9 @@ from typing import Dict, List, Optional, Tuple
 import vtk
 from trame.app import get_server
 from trame.ui.vuetify import SinglePageLayout
-from trame.widgets import vtk as vtk_widgets
 from trame.widgets import vuetify, html
+# Use trame_vtklocal for WASM-based rendering
+from trame_vtklocal.widgets import vtklocal
 
 from trajectory_adapter import get_adapter
 
@@ -1199,18 +1200,43 @@ def on_vtk_click(event):
     
     The event contains screen coordinates that we use to perform VTK picking.
     This connects user mouse clicks to the measurement and info display system.
+    
+    trame-vtklocal event format may include: x, y, clientX, clientY, offsetX, offsetY
     """
     if not event:
         state.status_message = "Click detected but no event data"
         return
     
-    # Get click position from event
-    # VtkRemoteView sends position as { x, y, ... }
-    x = event.get("x", event.get("position", {}).get("x", 0))
-    y = event.get("y", event.get("position", {}).get("y", 0))
+    # Debug: Log the event structure to understand trame-vtklocal format
+    print(f"[DEBUG] Click event keys: {event.keys() if isinstance(event, dict) else type(event)}")
+    print(f"[DEBUG] Click event: {event}")
+    
+    # Get click position from event - try multiple formats
+    # trame-vtklocal might use different coordinate systems
+    x = None
+    y = None
+    
+    # Try direct coordinates
+    if isinstance(event, dict):
+        x = event.get("x") or event.get("clientX") or event.get("offsetX")
+        y = event.get("y") or event.get("clientY") or event.get("offsetY")
+        
+        # Try nested position object
+        if x is None and "position" in event:
+            pos = event.get("position", {})
+            if isinstance(pos, dict):
+                x = pos.get("x")
+                y = pos.get("y")
+        
+        # Try canvas coordinates
+        if x is None and "canvas" in event:
+            canvas = event.get("canvas", {})
+            if isinstance(canvas, dict):
+                x = canvas.get("x")
+                y = canvas.get("y")
     
     if x is None or y is None:
-        state.status_message = "Click position not available"
+        state.status_message = f"Click position not available in event: {list(event.keys()) if isinstance(event, dict) else 'not a dict'}"
         return
     
     # Convert to integers (screen coordinates)
@@ -1218,8 +1244,10 @@ def on_vtk_click(event):
         x = int(x)
         y = int(y)
     except (ValueError, TypeError):
-        state.status_message = "Invalid click coordinates"
+        state.status_message = f"Invalid click coordinates: x={x}, y={y}"
         return
+    
+    print(f"[DEBUG] Extracted coordinates: x={x}, y={y}")
     
     # Perform VTK picking to find residue
     state.status_message = f"Picking at ({x}, {y})..."
@@ -1231,7 +1259,7 @@ def on_vtk_click(event):
         resnum = residue.get("resnum", residue_idx + 1)
         state.status_message = f"Selected: {resname}{resnum} (index {residue_idx})"
         _handle_residue_pick(residue_idx)
-        ctrl.update_view()
+        ctrl.view_update()
     else:
         state.status_message = "No residue at click position"
 
@@ -1282,31 +1310,25 @@ def toggle_animation():
 
 
 def _start_animation_loop():
-    """Start the animation loop using Trame's async system."""
+    """Start the animation loop using threading for reliable playback."""
     global _animation_task, _animation_running
     
-    async def _animation_loop():
+    def _animation_loop_threaded():
+        """Animation loop that runs in a background thread."""
         global _animation_running
         while _animation_running and state.animation_playing:
             _animation_step()
+            # Force view update
             try:
-                ctrl.update_view()
+                ctrl.view_update()
             except Exception:
                 pass
-            await asyncio.sleep(1.0 / max(1, state.animation_speed))
+            # Sleep based on current speed
+            time.sleep(1.0 / max(1, state.animation_speed))
     
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            _animation_task = asyncio.ensure_future(_animation_loop())
-        else:
-            # Create a new event loop if needed
-            _animation_task = asyncio.ensure_future(_animation_loop())
-    except RuntimeError:
-        # No event loop, create one
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        _animation_task = asyncio.ensure_future(_animation_loop())
+    # Start animation in a background thread
+    _animation_task = threading.Thread(target=_animation_loop_threaded, daemon=True)
+    _animation_task.start()
 
 
 @ctrl.add("animation_step_forward")
@@ -1339,6 +1361,15 @@ def _on_animation_change(animation_playing, **_):
             except Exception:
                 pass
             _animation_task = None
+
+
+@state.change("animation_speed")
+def _on_animation_speed_change(animation_speed, **_):
+    """Handle animation speed changes."""
+    # Animation loop will pick up the new speed automatically
+    # Just update status message if playing
+    if state.animation_playing:
+        state.status_message = f"▶ Playing at {animation_speed} fps"
 
 
 # -----------------------------------------------------------------------------
@@ -1642,11 +1673,13 @@ with SinglePageLayout(server) as layout:
                                         children=["Distance"],
                                         small=True,
                                         value="distance",
+                                        title="Click 2 residues to measure distance",
                                     ),
                                     vuetify.VBtn(
                                         children=["Angle"],
                                         small=True,
                                         value="angle",
+                                        title="Click 3 residues to measure angle",
                                     ),
                                 ],
                             )
@@ -1656,6 +1689,7 @@ with SinglePageLayout(server) as layout:
                                 text=True,
                                 click=ctrl.clear_measurement,
                                 classes="ml-2",
+                                title="Clear current measurement",
                             )
                             
                             vuetify.VDivider(vertical=True, classes="mx-2")
@@ -1667,6 +1701,7 @@ with SinglePageLayout(server) as layout:
                                 hide_details=True,
                                 v_model=("multi_select_enabled", False),
                                 classes="mr-2",
+                                title="Enable multi-residue selection (shows selection summary panel)",
                             )
                             
                             vuetify.VDivider(vertical=True, classes="mx-2")
@@ -1677,16 +1712,17 @@ with SinglePageLayout(server) as layout:
                                 small=True,
                                 click=ctrl.export_snapshot,
                                 children=[vuetify.VIcon("mdi-camera", small=True)],
-                                title="Export snapshot",
+                                title="Export current view as PNG snapshot",
                             )
                         
                         # VTK View with click and hover interaction support
                         with vuetify.VCardText(classes="flex-grow-1 pa-0", style="position: relative;"):
-                            # Use VtkLocalView for better client-side interaction
-                            # This handles geometry on client side with proper event handling
-                            view = vtk_widgets.VtkLocalView(
+                            # Use trame-vtklocal for WASM-based client-side rendering
+                            # This provides better interaction, picking, and performance
+                            view = vtklocal.LocalView(
                                 render_window,
                                 ref="ribbonView",
+                                namespace="ribbonNS",
                                 # Enable interactor events for picking
                                 interactor_events=("events", ["LeftButtonPress", "MouseMove"]),
                                 LeftButtonPress=(ctrl.on_vtk_click, "[$event]"),
