@@ -11,6 +11,11 @@ setup(
     install_requires=[
         "flask>=2.0.1",
         "numpy>=1.21.0",
+        "trame>=3.0.0",
+        "trame-vuetify>=2.3.0",
+        "trame-vtklocal>=0.6.0",
+        "vtk>=9.2.0",
+        "wslink>=1.11.0",
     ],
     classifiers=[
         "Development Status :: 4 - Beta",

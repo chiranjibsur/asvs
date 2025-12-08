@@ -12,8 +12,9 @@ from typing import Dict, List, Optional, Tuple
 import vtk
 from trame.app import get_server
 from trame.ui.vuetify import SinglePageLayout
-from trame.widgets import vtk as vtk_widgets
 from trame.widgets import vuetify, html
+# Use trame_vtklocal for WASM-based rendering
+from trame_vtklocal.widgets import vtklocal
 
 from trajectory_adapter import get_adapter
 
@@ -1682,11 +1683,12 @@ with SinglePageLayout(server) as layout:
                         
                         # VTK View with click and hover interaction support
                         with vuetify.VCardText(classes="flex-grow-1 pa-0", style="position: relative;"):
-                            # Use VtkLocalView for better client-side interaction
-                            # This handles geometry on client side with proper event handling
-                            view = vtk_widgets.VtkLocalView(
+                            # Use trame-vtklocal for WASM-based client-side rendering
+                            # This provides better interaction, picking, and performance
+                            view = vtklocal.LocalView(
                                 render_window,
                                 ref="ribbonView",
+                                namespace="ribbonNS",
                                 # Enable interactor events for picking
                                 interactor_events=("events", ["LeftButtonPress", "MouseMove"]),
                                 LeftButtonPress=(ctrl.on_vtk_click, "[$event]"),

@@ -5,8 +5,9 @@ import vtk
 # Trame imports
 from trame.app import get_server
 from trame.ui.vuetify import SinglePageLayout
-from trame.widgets import vtk as vtk_widgets
 from trame.widgets import html
+# Use trame_vtklocal for WASM-based rendering
+from trame_vtklocal.widgets import vtklocal
 
 # -------------------------------------------------------------------------
 # Helper: Download a sample PDB if your file doesn't exist
@@ -70,7 +71,7 @@ def main():
         print("Error: Could not find a PDB file to load.")
         return
 
-    # Initialize Trame Server (Vue2 mode required for trame-vtk 2.10)
+    # Initialize Trame Server with trame-vtklocal support
     server = get_server(client_type="vue2")
     state, ctrl = server.state, server.controller
 
@@ -85,9 +86,10 @@ def main():
             html.Div(
                 style="width: 100%; height: 100%; position: relative;",
                 children=[
-                    vtk_widgets.VtkLocalView(
+                    vtklocal.LocalView(
                         render_window,
                         ref="view",
+                        namespace="ribbonNS",
                         style="width: 100%; height: 100%;"
                     )
                 ],
