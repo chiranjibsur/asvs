@@ -9,13 +9,25 @@ Molecular Visualizer is an interactive web-based platform for visualizing protei
 ## Key Features
 
 - **3D Interactive Visualization**: Rotate, zoom, and pan to explore molecular structures from any angle
+- **WebAssembly-Powered Rendering**: Using VTK.wasm + trame-vtklocal for client-side rendering
+  - Fast, responsive interactions with no server lag
+  - Reliable click-to-select and picking
+  - Instant metric switching and recoloring
+  - Stable animation playback
 - **Multiple Visualization Styles**: 
   - Ball and Stick model 
-  - Protein Ribbon model
+  - Protein Ribbon model with smooth tube geometry
 - **Diverse Color Mapping Options**:
   - Element-based coloring (CPK coloring)
   - B-factor (temperature) coloring
   - Residue-based coloring
+  - ML-based dynamic hotspot coloring
+- **Interactive Features**:
+  - Click-to-select residues with detailed info panels
+  - Distance and angle measurement tools
+  - Contact visualization between residues
+  - Clipping planes for structure exploration
+  - Frame-by-frame animation with playback controls
 - **Interactive Atom Information**: Hover over atoms to view detailed information (element, residue, chain, B-factor, coordinates)
 - **2D Projections**: Top view (X-Y plane) and side view (X-Z plane) for complementary visualization
 - **File Upload**: Upload and visualize your own PDB files
@@ -23,12 +35,17 @@ Molecular Visualizer is an interactive web-based platform for visualizing protei
 
 ## Technologies Used
 
-- **Backend**: Flask (Python)
+- **Backend**: Flask (Python) + Trame Framework
 - **Frontend**: 
-  - Three.js for 3D rendering
+  - VTK.wasm for WebAssembly-powered 3D rendering
+  - trame-vtklocal for client-side VTK visualization
+  - Three.js for additional 3D rendering
   - Vue.js and Vuetify for UI components
   - HTML5 Canvas for 2D visualization
-- **Data Processing**: Custom PDB file parsing algorithms
+- **Data Processing**: 
+  - MDAnalysis for trajectory handling
+  - Custom PDB file parsing algorithms
+  - VTK for molecular visualization pipelines
 - **Containerization**: Docker for easy deployment
 
 ## How to Run the Application
@@ -79,6 +96,18 @@ Molecular Visualizer is an interactive web-based platform for visualizing protei
 
 ## How to Use
 
+### Ribbon Viewer (Trame-based)
+1. Start the ribbon viewer: `python trame_ribbon_app.py`
+2. Open http://localhost:9887 in your browser
+3. Interactive features:
+   - Click on residues to view detailed information
+   - Use the "Metric" dropdown to switch between hotspot, anomaly, RMSF, and tICA coloring
+   - Enable "Distance" or "Angle" tools to measure between residues
+   - Enable "Contacts" to visualize residue-residue interactions
+   - Use animation controls (play/pause/step) to explore trajectory frames
+   - Enable "Clip" to use clipping planes for structure exploration
+
+### Classic Viewer (Flask-based)
 1. Once the application is running, open http://localhost:5000 in your browser
 2. Click "Load Example Structure" or upload your own PDB file
 3. Use mouse controls to interact with the 3D view:
@@ -89,13 +118,24 @@ Molecular Visualizer is an interactive web-based platform for visualizing protei
 5. Hover over atoms to see detailed information
 6. Click the fullscreen button for a more immersive experience
 
+## Recent Updates
+
+### VTK.wasm + trame-vtklocal Migration (Latest)
+The ribbon viewer has been migrated from server-side VTK rendering to client-side WebAssembly-powered rendering using trame-vtklocal. This provides:
+
+- ✅ **Reliable Interactions**: Click-to-select now works consistently across all browsers
+- ✅ **Instant Updates**: Metric switching updates colors immediately without lag
+- ✅ **Working Measurement Tools**: Distance and angle measurements function reliably
+- ✅ **Stable Animation**: Frame playback is smooth and consistent
+- ✅ **True Interactivity**: All features work together seamlessly
+
+See [VTKLOCAL_MIGRATION.md](VTKLOCAL_MIGRATION.md) for technical details.
+
 ## Future Enhancements
 
 - Support for more visualization styles (Space-filling, Wireframe)
 - Molecular surface visualization
-- Distance and angle measurement tools
 - Ligand highlighting
-- Animation capabilities for dynamics visualization
 - Export options for images and 3D models
 
 ## License
