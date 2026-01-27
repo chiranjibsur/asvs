@@ -12,6 +12,28 @@ from trame.widgets import vuetify, html
 from trame_vtklocal.widgets import vtklocal
 
 # -------------------------------------------------------------------------
+# Configuration Constants
+# -------------------------------------------------------------------------
+# Ribbon geometry
+POINTS_PER_RESIDUE = 10  # Approximate points per residue in ribbon geometry
+
+# Hotspot thresholds and color mapping
+LOW_HOTSPOT_THRESHOLD = 0.15    # Below this is "low" hotspot (blue)
+HIGH_HOTSPOT_THRESHOLD = 0.25   # Above this is "high" hotspot (red)
+HOTSPOT_MARKER_THRESHOLD = 0.25 # Show marker spheres above this value
+
+# Color scaling factors
+LOW_COLOR_SCALE = 1000   # Scaling for low hotspot colors
+HIGH_COLOR_SCALE = 400   # Scaling for high hotspot colors
+
+# Picking parameters
+PICKING_THRESHOLD_ANGSTROMS = 5.0  # Maximum distance for residue selection
+
+# Render window dimensions
+RENDER_WINDOW_WIDTH = 1000
+RENDER_WINDOW_HEIGHT = 800
+
+# -------------------------------------------------------------------------
 # Global state for interactivity
 # -------------------------------------------------------------------------
 hotspot_data = {}
@@ -119,20 +141,25 @@ def build_vtk_pipeline(pdb_path):
     
     # Color based on hotspot data
     for i in range(num_points):
-        # Map point index to residue index (approximate)
-        residue_idx = min(i // 10, len(ca_positions) - 1)  # Ribbon has ~10 points per residue
+        # Map point index to residue index (ribbon has ~POINTS_PER_RESIDUE points per residue)
+        residue_idx = min(i // POINTS_PER_RESIDUE, len(ca_positions) - 1)
         
         hotspot_value = 0.0
         if str(residue_idx) in hotspot_data:
             hotspot_value = float(hotspot_data[str(residue_idx)])
         
         # Color gradient: Blue (low) -> White (medium) -> Red (high)
-        if hotspot_value < 0.15:
+        if hotspot_value < LOW_HOTSPOT_THRESHOLD:
             # Low: Blue
-            r, g, b = int(100 + hotspot_value * 1000), int(100 + hotspot_value * 1000), 255
-        elif hotspot_value > 0.25:
+            r = int(100 + hotspot_value * LOW_COLOR_SCALE)
+            g = int(100 + hotspot_value * LOW_COLOR_SCALE)
+            b = 255
+        elif hotspot_value > HIGH_HOTSPOT_THRESHOLD:
             # High: Red
-            r, g, b = 255, int(255 - (hotspot_value - 0.25) * 400), int(255 - (hotspot_value - 0.25) * 400)
+            excess = hotspot_value - HIGH_HOTSPOT_THRESHOLD
+            r = 255
+            g = int(255 - excess * HIGH_COLOR_SCALE)
+            b = int(255 - excess * HIGH_COLOR_SCALE)
         else:
             # Medium: White
             r, g, b = 255, 255, 255
@@ -163,7 +190,7 @@ def build_vtk_pipeline(pdb_path):
     # Create render window
     render_window = vtk.vtkRenderWindow()
     render_window.AddRenderer(renderer)
-    render_window.SetSize(1000, 800)
+    render_window.SetSize(RENDER_WINDOW_WIDTH, RENDER_WINDOW_HEIGHT)
     
     return render_window, renderer
 
@@ -174,13 +201,11 @@ def add_hotspot_markers(renderer):
     """Add sphere markers at high-hotspot residues for visual emphasis."""
     global hotspot_spheres
     
-    hotspot_threshold = 0.25  # Show markers for hotspots > 0.25
-    
     for i, pos in enumerate(ca_positions):
         if str(i) in hotspot_data:
             hotspot_value = float(hotspot_data[str(i)])
             
-            if hotspot_value > hotspot_threshold:
+            if hotspot_value > HOTSPOT_MARKER_THRESHOLD:
                 # Create sphere at high-hotspot position
                 sphere = vtk.vtkSphereSource()
                 sphere.SetCenter(pos)
@@ -195,7 +220,7 @@ def add_hotspot_markers(renderer):
                 actor.SetMapper(mapper)
                 
                 # Color intensity based on hotspot value
-                intensity = min(1.0, (hotspot_value - hotspot_threshold) * 3)
+                intensity = min(1.0, (hotspot_value - HOTSPOT_MARKER_THRESHOLD) * 3)
                 actor.GetProperty().SetColor(1.0, 0.5 - intensity * 0.5, 0.0)  # Orange to red
                 actor.GetProperty().SetOpacity(0.6)
                 
@@ -233,8 +258,8 @@ def pick_residue_at_position(renderer, x, y, width, height):
                 min_dist = dist
                 nearest_idx = i
         
-        # Only select if within reasonable distance (5 Angstroms)
-        if min_dist < 5.0:
+        # Only select if within reasonable distance threshold
+        if min_dist < PICKING_THRESHOLD_ANGSTROMS:
             selected_residue_idx = nearest_idx
             return nearest_idx
     
@@ -348,8 +373,10 @@ def main():
         # Extract coordinates from event
         x = event.get("x", 0)
         y = event.get("y", 0)
-        width = 1000
-        height = 800
+        
+        # Use configured window dimensions
+        width = RENDER_WINDOW_WIDTH
+        height = RENDER_WINDOW_HEIGHT
         
         print(f"Click at ({x}, {y})")
         
