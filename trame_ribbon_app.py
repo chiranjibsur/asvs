@@ -13,8 +13,7 @@ import vtk
 from trame.app import get_server
 from trame.ui.vuetify import SinglePageLayout
 from trame.widgets import vuetify, html
-# Use trame_vtklocal for WASM-based rendering
-from trame_vtklocal.widgets import vtklocal
+from trame.widgets import vtk as vtk_widgets
 
 from trajectory_adapter import get_adapter
 
@@ -236,6 +235,7 @@ renderer.AddActor(actor)
 render_window = vtk.vtkRenderWindow()
 render_window.AddRenderer(renderer)
 render_window.SetSize(1280, 720)
+render_window.SetOffScreenRendering(1)
 
 # -----------------------------------------------------------------------------
 # VTK Interactor and Picker setup for click interactions
@@ -1259,7 +1259,7 @@ def on_vtk_click(event):
         resnum = residue.get("resnum", residue_idx + 1)
         state.status_message = f"Selected: {resname}{resnum} (index {residue_idx})"
         _handle_residue_pick(residue_idx)
-        ctrl.view_update()
+        ctrl.update_view()
     else:
         state.status_message = "No residue at click position"
 
@@ -1320,7 +1320,7 @@ def _start_animation_loop():
             _animation_step()
             # Force view update
             try:
-                ctrl.view_update()
+                ctrl.update_view()
             except Exception:
                 pass
             # Sleep based on current speed
@@ -1717,13 +1717,10 @@ with SinglePageLayout(server) as layout:
                         
                         # VTK View with click and hover interaction support
                         with vuetify.VCardText(classes="flex-grow-1 pa-0", style="position: relative;"):
-                            # Use trame-vtklocal for WASM-based client-side rendering
-                            # This provides better interaction, picking, and performance
-                            view = vtklocal.LocalView(
+                            # Use trame-vtk for server-side rendering
+                            view = vtk_widgets.VtkRemoteView(
                                 render_window,
                                 ref="ribbonView",
-                                namespace="ribbonNS",
-                                # Enable interactor events for picking
                                 interactor_events=("events", ["LeftButtonPress", "MouseMove"]),
                                 LeftButtonPress=(ctrl.on_vtk_click, "[$event]"),
                                 MouseMove=(ctrl.on_vtk_hover, "[$event]"),
