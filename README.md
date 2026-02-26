@@ -123,11 +123,19 @@ MDAnalysis>=2.0.0      # For trajectory analysis (optional)
 If you prefer to install packages individually:
 
 ```bash
+# System dependency for headless VTK rendering (Linux only)
+# Ubuntu/Debian:
+sudo apt-get install -y libosmesa6
+# RHEL/CentOS/Fedora:
+# sudo yum install mesa-libOSMesa
+# Arch Linux:
+# sudo pacman -S osmesa
+
 # Core dependencies
 pip install flask>=2.0.1 numpy>=1.21.0
 
-# Trame + VTK.wasm dependencies (required for ribbon viewer)
-pip install trame>=3.0.0 trame-vuetify>=2.3.0 trame-vtklocal>=0.6.0 vtk>=9.2.0 wslink>=1.11.0
+# Trame + VTK dependencies (required for ribbon viewer)
+pip install trame>=3.0.0 trame-vuetify>=2.3.0 trame-vtk>=2.0.0 vtk>=9.2.0 wslink>=1.11.0
 ```
 
 ### Installation on Specific Platforms
@@ -173,20 +181,19 @@ After installation, verify everything is working:
 
 ```bash
 # Test imports
-python -c "import trame; import trame_vtklocal; import vtk; print('All imports successful!')"
+python -c "import trame; import trame_vtk; import vtk; print('All imports successful!')"
 
 # Run the ribbon viewer
 python trame_ribbon_app.py
 ```
 
-On first run, you'll see:
+On first run, the server starts immediately with no downloads required:
 ```
-Downloaded WASM:
- - from: https://gitlab.kitware.com/api/v4/projects/13/packages/generic/vtk-wasm32-emscripten/9.5.2/...
- - to: [your python site-packages]/trame_vtklocal/module/serve/wasm/9.5.2
-```
+[Trame Ribbon] Starting server at http://127.0.0.1:9887
 
-This is normal and only happens once. The viewer will then start successfully.
+App running at:
+ - Local:   http://localhost:9887/
+```
 
 ## How to Use
 
