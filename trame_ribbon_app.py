@@ -654,6 +654,16 @@ def update_ribbon_geometry(frame: int, metric: str) -> None:
         scalars.SetValue(idx, float(values[idx] if idx < len(values) else 0.0))
     scalars.Modified()
 
+    # Dynamically set scalar range to the actual data range so the full
+    # colormap is used rather than collapsing everything to one end.
+    if values:
+        lo = min(values)
+        hi = max(values)
+        if hi > lo:
+            mapper.SetScalarRange(lo, hi)
+        else:
+            mapper.SetScalarRange(0.0, 1.0)
+
     polydata.Modified()
     
     # Update clipping bounds after geometry change
@@ -735,8 +745,7 @@ state.animation_speed_options = [
     {"text": "20 fps", "value": 20},
     {"text": "30 fps", "value": 30},
 ]
-# Animation task reference stored in state for proper cleanup
-_animation_task = None
+# Flag used by the async animation loop to stop playback
 _animation_running = False
 
 # -----------------------------------------------------------------------------
@@ -1296,7 +1305,7 @@ def on_vtk_select(selection_info):
 @ctrl.add("toggle_animation")
 def toggle_animation():
     """Toggle animation playback."""
-    global _animation_running, _animation_task
+    global _animation_running
     state.animation_playing = not state.animation_playing
     
     if state.animation_playing:
@@ -1310,25 +1319,28 @@ def toggle_animation():
 
 
 def _start_animation_loop():
-    """Start the animation loop using threading for reliable playback."""
-    global _animation_task, _animation_running
-    
-    def _animation_loop_threaded():
-        """Animation loop that runs in a background thread."""
+    """Start the animation loop as an asyncio task in the Trame event loop."""
+    from trame_server.utils.asynchronous import create_task
+
+    async def _animation_loop_async():
+        """Animation loop running inside the Trame/asyncio event loop.
+
+        Using `with state:` ensures each frame update is flushed properly,
+        which triggers @state.change callbacks and pushes the updated state
+        to connected clients (slider moves, geometry updates, re-render).
+        `await asyncio.sleep(...)` yields to the event loop so WebSocket
+        messages are flushed between frames.
+        """
         global _animation_running
+        _animation_running = True
         while _animation_running and state.animation_playing:
-            _animation_step()
-            # Force view update
-            try:
-                ctrl.update_view()
-            except Exception:
-                pass
-            # Sleep based on current speed
-            time.sleep(1.0 / max(1, state.animation_speed))
-    
-    # Start animation in a background thread
-    _animation_task = threading.Thread(target=_animation_loop_threaded, daemon=True)
-    _animation_task.start()
+            next_frame = (state.current_frame + 1) % max(1, NUM_FRAMES)
+            with state:
+                state.current_frame = next_frame
+            await asyncio.sleep(1.0 / max(1, state.animation_speed))
+        _animation_running = False
+
+    create_task(_animation_loop_async())
 
 
 @ctrl.add("animation_step_forward")
@@ -1350,17 +1362,11 @@ def animation_step_backward():
 @state.change("animation_playing")
 def _on_animation_change(animation_playing, **_):
     """Handle animation state changes."""
-    global _animation_task, _animation_running
+    global _animation_running
     
     if not animation_playing:
-        # Stop animation
+        # Signal the async animation loop to exit on its next iteration
         _animation_running = False
-        if _animation_task is not None:
-            try:
-                _animation_task.cancel()
-            except Exception:
-                pass
-            _animation_task = None
 
 
 @state.change("animation_speed")
