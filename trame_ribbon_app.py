@@ -110,19 +110,18 @@ DEFAULT_METRIC = "hotspot"
 DEFAULT_COLORMAP = "red_white_blue"
 
 # -----------------------------------------------------------------------------
-# Simplified color scheme: Red-White-Blue gradient for all metrics
+# Color scheme: metric-specific gradients + shared Red-White-Blue
 # Blue = low values, White = mid values, Red = high values
 # -----------------------------------------------------------------------------
 METRIC_COLORMAPS = {
     "hotspot": "red_white_blue",
-    "anomaly": "red_white_blue",
-    "rmsf": "red_white_blue",
-    "tica": "red_white_blue",
+    "anomaly": "anomaly_gradient",
+    "rmsf": "rmsf_gradient",
+    "tica": "tica_gradient",
 }
 
-# Single colormap: Red-White-Blue with smooth gradient shades
-# Adjusted for better red visibility - starts transitioning to red earlier
 COLORMAP_PRESETS = {
+    # Shared Red-White-Blue gradient (hotspot default)
     "red_white_blue": [
         (0.0, "#08306b"),   # Dark blue (lowest)
         (0.1, "#2171b5"),   # Medium-dark blue
@@ -134,6 +133,36 @@ COLORMAP_PRESETS = {
         (0.75, "#ef3b2c"),  # Medium red
         (0.85, "#cb181d"),  # Medium-dark red
         (1.0, "#67000d"),   # Dark red (highest)
+    ],
+    # Anomaly: purple-white-orange (rare conformation scores)
+    "anomaly_gradient": [
+        (0.0, "#3f007d"),   # Dark purple (lowest anomaly)
+        (0.2, "#6a51a3"),   # Medium purple
+        (0.4, "#9e9ac8"),   # Light purple
+        (0.5, "#ffffff"),   # White (middle)
+        (0.6, "#fdae6b"),   # Light orange
+        (0.8, "#e6550d"),   # Medium orange
+        (1.0, "#a63603"),   # Dark orange (highest anomaly)
+    ],
+    # RMSF: green-white-red (flexibility: stable=green, flexible=red)
+    "rmsf_gradient": [
+        (0.0, "#005a32"),   # Dark green (rigid/stable)
+        (0.2, "#238b45"),   # Medium green
+        (0.4, "#74c476"),   # Light green
+        (0.5, "#ffffff"),   # White (middle)
+        (0.6, "#fb6a4a"),   # Light red
+        (0.8, "#cb181d"),   # Medium red
+        (1.0, "#67000d"),   # Dark red (highly flexible)
+    ],
+    # tICA: blue-white-yellow (slow-mode contribution)
+    "tica_gradient": [
+        (0.0, "#08306b"),   # Dark blue (low contribution)
+        (0.2, "#2171b5"),   # Medium blue
+        (0.4, "#6baed6"),   # Light blue
+        (0.5, "#ffffff"),   # White (middle)
+        (0.6, "#fee391"),   # Light yellow
+        (0.8, "#fe9929"),   # Medium yellow-orange
+        (1.0, "#8c2d04"),   # Dark brown (high contribution)
     ],
 }
 
@@ -683,9 +712,12 @@ state.frame_max = max(0, NUM_FRAMES - 1)
 state.metric_options = [
     {"text": cfg["label"], "value": key} for key, cfg in METRIC_CONFIG.items()
 ]
-# Single colormap: Red-White-Blue
+# Colormap options (metric-specific are applied automatically; these allow manual override)
 state.colormap_options = [
-    {"text": "Red-White-Blue", "value": "red_white_blue"}
+    {"text": "Red-White-Blue", "value": "red_white_blue"},
+    {"text": "Anomaly Gradient", "value": "anomaly_gradient"},
+    {"text": "RMSF Gradient", "value": "rmsf_gradient"},
+    {"text": "tICA Gradient", "value": "tica_gradient"},
 ]
 
 # Task 1: Clipping state
