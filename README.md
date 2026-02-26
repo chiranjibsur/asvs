@@ -208,6 +208,54 @@ App running at:
    - Use animation controls (play/pause/step) to explore trajectory frames
    - Enable "Clip" to use clipping planes for structure exploration
 
+### Hover & Click Picking (Residue-Level Interaction)
+
+The ribbon viewer supports interactive residue picking directly in the 3D view.
+
+#### Hover Tooltip
+- **Move your mouse** over any part of the ribbon to see a lightweight tooltip in the top-left of the view.
+- The tooltip displays: **residue name + number**, **chain ID**, and the **hotspot score** for the currently selected frame.
+- Example: `ALA42 (Chain A) · Hotspot: 0.347`
+- The hotspot score updates automatically when you change frames using the slider or playback controls.
+
+#### Click to Select
+- **Left-click** on the ribbon to select a residue and persist the selection.
+- The right-side **Residue Info** panel appears and shows:
+  - Chain ID, residue name and number, residue index
+  - All four ML metrics for the selected residue at the current frame:
+    - **Dynamic Hotspot** – per-frame ML hotspot intensity
+    - **Dynamic Anomaly** – rare-conformation anomaly score
+    - **RMSF (Flexibility)** – frame-independent flexibility measure
+    - **tICA Importance** – contribution to slow collective motions
+- The selection persists across camera movement (pan / rotate / zoom).
+- When you change frames, the displayed metric values automatically update to the new frame.
+
+#### Hotspot Score Details
+- The hotspot score is loaded from `viewer/hotspots_residue.json` (per-residue, per-frame data).
+- For frames where hotspot data is sparse, the score is computed as a weighted aggregate:
+  `hotspot ≈ anomaly × 0.4 + RMSF × 0.3 + tICA × 0.3`
+- Values range from **0.0** (low importance) to **1.0** (high importance).
+- The ribbon is colored accordingly using the selected colormap.
+
+#### Clear Selection
+- Click the **✕** button in the Residue Info card to deselect the current residue.
+- Switching to a measurement mode (Distance / Angle) will also use subsequent clicks for measurements instead of selection.
+
+#### Residue Search & Dropdown
+- Use the **Search Residue** text field in the right panel to find residues by name (e.g., `ALA`) or number.
+- Use the **Select Residue** dropdown to directly navigate to any residue by name/number.
+
+#### Metric-Specific Colormaps
+Each metric now has a dedicated colormap for clearer visual differentiation:
+| Metric | Colormap | Low → High |
+|--------|----------|------------|
+| Hotspot | Red-White-Blue | Blue → White → Red |
+| Anomaly | Purple → Orange | Dark purple → Orange-red |
+| RMSF | Blue → Yellow | Dark blue → Pale yellow |
+| tICA | Teal → Magenta | Dark teal → Dark magenta |
+
+Switch colormaps manually using the **Colormap** dropdown in the toolbar.
+
 ### Classic Viewer (Flask-based)
 1. Once the application is running, open http://localhost:5000 in your browser
 2. Click "Load Example Structure" or upload your own PDB file

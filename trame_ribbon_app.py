@@ -114,9 +114,9 @@ DEFAULT_COLORMAP = "red_white_blue"
 # -----------------------------------------------------------------------------
 METRIC_COLORMAPS = {
     "hotspot": "red_white_blue",
-    "anomaly": "red_white_blue",
-    "rmsf": "red_white_blue",
-    "tica": "red_white_blue",
+    "anomaly": "anomaly_gradient",
+    "rmsf": "rmsf_gradient",
+    "tica": "tica_gradient",
 }
 
 # Single colormap: Red-White-Blue with smooth gradient shades
@@ -133,6 +133,31 @@ COLORMAP_PRESETS = {
         (0.75, "#ef3b2c"),  # Medium red
         (0.85, "#cb181d"),  # Medium-dark red
         (1.0, "#67000d"),   # Dark red (highest)
+    ],
+    # Purple → Orange gradient for anomaly scores
+    "anomaly_gradient": [
+        (0.0, "#3f007d"),   # Dark purple (low anomaly)
+        (0.2, "#756bb1"),   # Medium purple
+        (0.4, "#bcbddc"),   # Light purple
+        (0.6, "#fdae6b"),   # Light orange
+        (0.8, "#e6550d"),   # Orange
+        (1.0, "#7f2704"),   # Dark orange-red (high anomaly)
+    ],
+    # Blue → Green → Yellow gradient for RMSF (flexibility)
+    "rmsf_gradient": [
+        (0.0, "#084081"),   # Dark blue (low flexibility / stable)
+        (0.25, "#2b8cbe"),  # Medium blue
+        (0.5, "#41ab5d"),   # Green (moderate flexibility)
+        (0.75, "#addd8e"),  # Light green
+        (1.0, "#f7fcb9"),   # Pale yellow (high flexibility)
+    ],
+    # Teal → Magenta gradient for tICA importance
+    "tica_gradient": [
+        (0.0, "#00441b"),   # Dark teal-green (low importance)
+        (0.25, "#41ae76"),  # Medium teal
+        (0.5, "#f7f7f7"),   # White (mid importance)
+        (0.75, "#de77ae"),  # Light magenta
+        (1.0, "#7b1d7d"),   # Dark magenta (high importance)
     ],
 }
 
@@ -683,9 +708,12 @@ state.frame_max = max(0, NUM_FRAMES - 1)
 state.metric_options = [
     {"text": cfg["label"], "value": key} for key, cfg in METRIC_CONFIG.items()
 ]
-# Single colormap: Red-White-Blue
+# Colormap options exposed in the UI
 state.colormap_options = [
-    {"text": "Red-White-Blue", "value": "red_white_blue"}
+    {"text": "Red-White-Blue", "value": "red_white_blue"},
+    {"text": "Anomaly (Purple→Orange)", "value": "anomaly_gradient"},
+    {"text": "RMSF (Blue→Yellow)", "value": "rmsf_gradient"},
+    {"text": "tICA (Teal→Magenta)", "value": "tica_gradient"},
 ]
 
 # Task 1: Clipping state
@@ -909,16 +937,21 @@ def _focus_on_residue(residue_idx: int):
 
 
 def _get_hover_tooltip(residue_idx: int) -> str:
-    """Generate tooltip text for hover."""
+    """Generate tooltip text for hover, including current-frame hotspot score."""
     if residue_idx < 0 or residue_idx >= NUM_RESIDUES:
         return ""
-    
+
     residue = RESIDUES[residue_idx]
     resname = residue.get("resname", "UNK")
     resnum = residue.get("resnum", residue_idx + 1)
     chain = residue.get("chain", "A")
-    
-    return f"{resname}{resnum} (Chain {chain})"
+
+    # Include current-frame hotspot score in the tooltip
+    frame = int(state.current_frame or 0)
+    metrics = _get_residue_metrics(residue_idx, frame)
+    hotspot_score = metrics.get("hotspot", 0.0)
+
+    return f"{resname}{resnum} (Chain {chain}) · Hotspot: {hotspot_score:.3f}"
 
 
 def _apply_colormap(name: str):
