@@ -1,0 +1,22 @@
+__pycache__/
+*.pdb
+!viewer/topology.pdb
+*.tmp
+*.log
+.vscode/
+.env
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+viewer/ballstick_frames/
+static/data/
+backups/
+2k39-bioemu-200-samples/
+repo_structure.txt
+# MDAnalysis cache files
+*.xtc_offsets.npz
+*.xtc_offsets.lock
+
+.trajectory.xtc_offsets.*

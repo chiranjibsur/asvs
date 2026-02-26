@@ -1,0 +1,357 @@
+# app.py — stable viewer server with residue hotspots + frame coords
+import os
+import json
+from flask import Flask, jsonify, render_template, send_from_directory, abort
+
+from trajectory_adapter import get_adapter
+
+try:
+    from trame_ribbon_app import (
+        ensure_ribbon_server,
+        ribbon_server_url,
+    )
+    _RIBBON_AVAILABLE = True
+except ImportError as _ribbon_import_err:
+    _RIBBON_AVAILABLE = False
+    print(f"[WARNING] Ribbon viewer unavailable: {_ribbon_import_err}")
+    print("[WARNING] Install vtk, trame, and trame-vtklocal to enable the ribbon viewer.")
+
+app = Flask(__name__)
+
+# ---- config for hotspots path (per-residue, per-frame) ----------------------
+HOTSPOTS_RES_PATH = os.environ.get(
+    "ASVS_HOTSPOTS_RES",
+    os.path.join("viewer", "hotspots_residue.json")
+)
+
+# Load the adapter once (caches MDAnalysis Universe)
+adapter = get_adapter()
+
+# ------------------------------- helpers -------------------------------------
+def _to_serializable(obj):
+    """
+    Convert possible NumPy arrays / scalars to plain Python for jsonify().
+    """
+    try:
+        import numpy as np
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if isinstance(obj, (np.floating, np.integer)):
+            return obj.item()
+    except Exception:
+        pass
+    return obj
+
+# ------------------------------- UI ROUTES -----------------------------------
+@app.route("/")
+@app.route("/viewer")
+def viewer():
+    return render_template("hotspot_viewer.html")
+
+@app.route("/static/<path:path>")
+def static_files(path):
+    return send_from_directory("static", path)
+
+@app.route("/viewer/<path:filename>")
+def serve_viewer_files(filename):
+    """If you keep any extra files under ./viewer."""
+    root = os.path.join(os.path.dirname(__file__), "viewer")
+    fp = os.path.join(root, filename)
+    if not os.path.isfile(fp):
+        abort(404)
+    return send_from_directory(root, filename)
+
+# ------------------------------- API ROUTES ----------------------------------
+@app.route("/api/trajectory/meta")
+def api_meta():
+    """Basic counts and paths."""
+    # Support either adapter.get_meta() or adapter.summary()
+    if hasattr(adapter, "get_meta"):
+        meta = adapter.get_meta()
+    else:
+        meta = adapter.summary()
+    return jsonify(meta)
+
+@app.route("/api/trajectory/residue_map")
+def api_residue_map():
+    """
+    Returns mapping from atom index (0-based) to residue number (PDB resnum).
+    {
+      "resnos": [145,145,145,146,146,...]   # len == n_atoms
+    }
+    """
+    resnos = adapter.get_residue_map()
+    return jsonify({"resnos": _to_serializable(resnos)})
+
+@app.route("/api/trajectory/atom_residue_index")
+def api_atom_residue_index():
+    """
+    Returns mapping from atom index to residue index (0-based).
+    This is the same as residue_map but converts PDB resnums to 0-based indices.
+    Returns: [0, 0, 0, 1, 1, 1, 2, 2, ...]  # len == n_atoms
+    """
+    resnos = adapter.get_residue_map()
+    # Build resnum -> index mapping
+    residues = adapter.get_residue_table()
+    resnum_to_index = {r["resnum"]: r["index"] for r in residues}
+    # Convert resnums to indices
+    indices = [resnum_to_index.get(rn, 0) for rn in resnos]
+    return jsonify(_to_serializable(indices))
+
+@app.route("/api/trajectory/residue_meta")
+def api_residue_meta():
+    """
+    Returns residue table for tooltips etc.
+    {
+      "residues": [
+        {"index": 0, "resnum": 1, "resname": "ALA", "chain": "A"},
+        ...
+      ]
+    }
+    """
+    table = adapter.get_residue_table()
+    return jsonify({"residues": _to_serializable(table)})
+
+@app.route("/api/trajectory/frame/<int:frame>")
+def api_frame(frame: int):
+    """
+    Returns atom 3D coordinates for a frame.
+    {
+      "frame": n,
+      "xyz": [[x,y,z], ...]   # len == n_atoms
+    }
+    """
+    xyz = adapter.get_frame_xyz(frame)
+    return jsonify({"frame": frame, "xyz": _to_serializable(xyz)})
+
+@app.route("/api/hotspots/<int:frame>")
+def api_hotspots_frame(frame: int):
+    """
+    Returns per-residue hotspot map for a frame.
+    {
+      "1": 0.12, "2": 0.34, ..., "75": 0.91
+    }
+    """
+    try:
+        with open(HOTSPOTS_RES_PATH, "r") as f:
+            blob = json.load(f)  # dict[str -> dict[str->float]]
+        data = blob.get(str(frame))
+        if data is None:
+            return jsonify({"error": f"frame {frame} not found in {HOTSPOTS_RES_PATH}"}), 404
+        # normalize to floats
+        data = {str(k): float(v) for k, v in data.items()}
+        return jsonify(data)
+    except FileNotFoundError:
+        return jsonify({"error": f"missing {HOTSPOTS_RES_PATH}"}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/trajectory/atoms")
+def api_atoms():
+    """
+    One-time atom metadata used to build bonds client-side.
+    Returns: { atoms: [{index, element, resnum, name, backbone_type}], covalent_radii: { 'C': 0.76, ... }, has_full_backbone: bool }
+    """
+    return jsonify(adapter.get_atom_table())
+
+@app.route("/api/trajectory/atoms_full/<int:frame>")
+def api_atoms_full_frame(frame: int):
+    """
+    Returns all atoms with positions and metadata for a frame.
+    Useful for ball-and-stick and point cloud viewers.
+    {
+        frame: n,
+        atoms: [{
+            index: int,
+            element: str,
+            name: str,
+            resnum: int,
+            resname: str,
+            backbone_type: str,  # 'backbone' or 'sidechain'
+            position: [x, y, z]
+        }, ...],
+        has_full_backbone: bool
+    }
+    """
+    data = adapter.get_all_atoms_with_positions(frame)
+    return jsonify(_to_serializable(data))
+
+@app.route("/api/trajectory/ca/<int:frame>")
+def api_ca_frame(frame: int):
+    """
+    Returns ordered Cα coordinates for a frame:
+    { frame: n, ca: [[x,y,z], ...] }
+    """
+    ca = adapter.get_ca_xyz(frame)
+    return jsonify({"frame": frame, "ca": ca})
+
+@app.route("/api/trajectory/backbone/<int:frame>")
+def api_backbone_frame(frame: int):
+    """
+    Returns backbone atoms (N, CA, C) for each residue in a frame.
+    {
+        frame: n,
+        residues: [{
+            index: int,
+            resnum: int,
+            resname: str,
+            N: [x,y,z] or null,
+            CA: [x,y,z] or null,
+            C: [x,y,z] or null
+        }, ...]
+    }
+    """
+    backbone = adapter.get_backbone_atoms(frame)
+    return jsonify({"frame": frame, "residues": _to_serializable(backbone)})
+
+@app.route("/api/trajectory/secondary_structure/<int:frame>")
+def api_secondary_structure_frame(frame: int):
+    """
+    Returns secondary structure assignment for each residue in a frame.
+    Based on CA trace geometry (distance and curvature patterns).
+    {
+        frame: n,
+        residues: [{
+            index: int,
+            resnum: int,
+            resname: str,
+            ss: 'H' | 'E' | 'C'  (helix, sheet, coil)
+        }, ...]
+    }
+    """
+    ss_data = adapter.get_secondary_structure(frame)
+    return jsonify({"frame": frame, "residues": _to_serializable(ss_data)})
+
+@app.route("/api/rmsf")
+def api_rmsf():
+    """
+    Returns per-residue RMSF (flexibility) data.
+    """
+    rmsf_path = os.environ.get(
+        "ASVS_RMSF",
+        os.path.join("viewer", "rmsf_residue.json")
+    )
+    
+    if not os.path.isfile(rmsf_path):
+        return jsonify({"error": "RMSF data not found"}), 404
+    
+    with open(rmsf_path, "r") as f:
+        data = json.load(f)
+    
+    return jsonify(data)
+
+@app.route("/api/contacts")
+def api_contacts():
+    """
+    Returns residue-residue contact network data.
+    """
+    contacts_path = os.environ.get(
+        "ASVS_CONTACTS",
+        os.path.join("viewer", "contacts.json")
+    )
+    
+    if not os.path.isfile(contacts_path):
+        return jsonify({"error": "Contacts data not found"}), 404
+    
+    with open(contacts_path, "r") as f:
+        data = json.load(f)
+    
+    return jsonify(data)
+
+@app.route("/api/metrics/anomaly/<int:frame>")
+def api_metrics_anomaly(frame: int):
+    """
+    Returns per-residue dynamic anomaly scores for a specific frame.
+    Data comes from external ML pipeline (ensemble-anomaly-maps).
+    {
+      "0": 0.12, "1": 0.34, ..., "373": 0.91
+    }
+    """
+    anomaly_path = os.environ.get(
+        "ASVS_ANOMALY",
+        os.path.join("viewer", "anomaly_residue.json")
+    )
+    
+    if not os.path.isfile(anomaly_path):
+        return jsonify({"error": "Anomaly data not found"}), 404
+    
+    try:
+        with open(anomaly_path, "r") as f:
+            blob = json.load(f)
+        
+        # Get data for specific frame
+        data = blob.get(str(frame))
+        if data is None:
+            return jsonify({"error": f"frame {frame} not found in anomaly data"}), 404
+        
+        # Normalize to floats
+        data = {str(k): float(v) for k, v in data.items() if k != "description"}
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/metrics/tica_importance")
+def api_metrics_tica_importance():
+    """
+    Returns per-residue tICA importance scores.
+    Shows contribution to slow collective motions.
+    """
+    tica_path = os.environ.get(
+        "ASVS_TICA",
+        os.path.join("viewer", "tica_importance.json")
+    )
+    
+    if not os.path.isfile(tica_path):
+        return jsonify({"error": "tICA importance data not found"}), 404
+    
+    try:
+        with open(tica_path, "r") as f:
+            data = json.load(f)
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/viewer/ballstick")
+def viewer_ballstick():
+    return render_template("ballstick_viewer.html")
+
+@app.route("/viewer/ribbon")
+def viewer_ribbon():
+    """Render the Trame ribbon viewer.
+    
+    The ribbon viewer runs on a separate Trame server (port 9887 by default).
+    This route ensures the server is running and embeds it in an iframe.
+    """
+    if not _RIBBON_AVAILABLE:
+        return (
+            "Ribbon viewer is unavailable. "
+            "Please install vtk, trame, and trame-vtklocal: "
+            "pip install -r requirements.txt",
+            503,
+        )
+    print("[Flask] Navigating to Ribbon viewer - ensuring Trame server is running...")
+    ensure_ribbon_server()
+    url = ribbon_server_url()
+    print(f"[Flask] Ribbon server URL: {url}")
+    return render_template("ribbon_viewer.html", ribbon_server_url=url)
+
+# ------------------------------- MAIN ----------------------------------------
+if __name__ == "__main__":
+    print("=" * 60)
+    print("ASVS Molecular Visualizer")
+    print("=" * 60)
+    print()
+    print("Available viewers at http://127.0.0.1:5000:")
+    print("  • Points view:       /viewer")
+    print("  • Ball-and-Stick:    /viewer/ballstick")
+    print("  • Ribbon view:       /viewer/ribbon")
+    print()
+    print("Ribbon viewer features:")
+    print("  ▶ Animation playback (play/pause/step)")
+    print("  ✂ Clipping planes (X/Y/Z)")
+    print("  🔗 Contact visualization")
+    print("  📏 Distance/angle measurements")
+    print("  ℹ Residue info with ML metrics")
+    print()
+    # Dev server
+    app.run(host="127.0.0.1", port=5000, debug=True)

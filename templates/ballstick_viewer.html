@@ -1,0 +1,722 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Molecular Visualizer • Ball-and-Stick</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    :root{color-scheme:dark} html,body{height:100%;margin:0}
+    body{background:#0f1012;color:#e9eaee;font-family:system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial,sans-serif}
+    .wrap{max-width:1200px;margin:24px auto;padding:0 20px}
+    h1{margin:0 0 6px;font-weight:700}
+    .meta{display:inline-block;padding:6px 10px;border-radius:10px;background:#1a1c22;border:1px solid #2b2f3a;font-size:12px;color:#b9beca;margin:4px 0 14px}
+    .controls{display:grid;grid-template-columns:auto 1fr auto auto;gap:10px;align-items:center;margin:8px 0 12px}
+    .btn{padding:8px 12px;border:1px solid #2b2f3a;background:#1a1c22;color:#e9eaee;border-radius:8px;cursor:pointer;font-weight:600}
+    .viewer{position:relative;background:#0b0c0f;border:1px solid #2b2f3a;border-radius:10px;height:min(72vh,680px);overflow:hidden}
+    #canvas{width:100%;height:100%;display:block}
+    
+    /* Legend (enhanced gradient) */
+    #legend{position:absolute;right:16px;bottom:16px;width:220px;user-select:none;background:rgba(18,20,24,.55);backdrop-filter:blur(4px);border:1px solid #3a3f4a;border-radius:8px;padding:10px;z-index:50;}
+    #legend .title{font:12px/1.3 monospace;color:#c9ceda;margin-bottom:6px;}
+    #legendBar{height:12px;border:1px solid #555;background:linear-gradient(to right,#08306b,#2171b5,#4292c6,#6baed6,#ffffff,#fb6a4a,#ef3b2c,#cb181d,#67000d);border-radius:2px;}
+    #legend .ticks{display:flex;justify-content:space-between;font:11px/1.2 monospace;color:#aeb4c2;margin-top:4px;}
+    #legend .desc{margin-top:8px;font:11px/1.3 sans-serif;color:#9aa3b2;}
+    
+    /* Atom Info Panel */
+    #infoPanel{
+      position:absolute;
+      top:80px;
+      right:20px;
+      width:300px;
+      background:rgba(26, 28, 34, 0.95);
+      border:1px solid #2b2f3a;
+      border-radius:10px;
+      padding:16px;
+      display:none;
+      z-index:100;
+      box-shadow:0 8px 32px rgba(0, 0, 0, 0.4);
+    }
+    
+    .atom-info-panel h3{
+      margin:0 0 12px 0;
+      color:#e9eaee;
+      font-size:16px;
+      font-weight:600;
+    }
+    
+    .info-section{
+      margin-bottom:10px;
+      color:#b9beca;
+      font-size:13px;
+      line-height:1.5;
+    }
+    
+    .info-section strong{
+      color:#e9eaee;
+    }
+    
+    .close-btn{
+      width:100%;
+      padding:8px;
+      margin-top:8px;
+      background:#263043;
+      color:#fff;
+      border:1px solid #2b2f3a;
+      border-radius:6px;
+      cursor:pointer;
+      font-size:13px;
+    }
+    
+    .close-btn:hover{
+      background:#2d3a4f;
+    }
+    
+    /* Top Contacts Panel */
+    #contactsPanel{
+      position:absolute;
+      top:80px;
+      left:20px;
+      width:280px;
+      max-height:400px;
+      background:rgba(26, 28, 34, 0.95);
+      border:1px solid #2b2f3a;
+      border-radius:10px;
+      padding:16px;
+      display:none;
+      z-index:100;
+      overflow-y:auto;
+      box-shadow:0 8px 32px rgba(0, 0, 0, 0.4);
+    }
+    
+    #contactsPanel h3{
+      margin:0 0 12px 0;
+      color:#e9eaee;
+      font-size:16px;
+      font-weight:600;
+    }
+    
+    .contact-item{
+      padding:8px;
+      margin-bottom:6px;
+      background:#1f232b;
+      border-radius:6px;
+      cursor:pointer;
+      font-size:12px;
+      color:#b9beca;
+    }
+    
+    .contact-item:hover{
+      background:#2d3a4f;
+    }
+    
+    /* Clip Plane Controls */
+    #clipPlaneControls{
+      position:absolute;
+      top:80px;
+      right:340px;
+      width:280px;
+      background:rgba(26, 28, 34, 0.95);
+      border:1px solid #2b2f3a;
+      border-radius:10px;
+      padding:16px;
+      display:none;
+      z-index:100;
+      box-shadow:0 8px 32px rgba(0, 0, 0, 0.4);
+    }
+    
+    #clipPlaneControls h3{
+      margin:0 0 12px 0;
+      color:#e9eaee;
+      font-size:16px;
+      font-weight:600;
+    }
+    
+    .clip-control{
+      margin-bottom:12px;
+    }
+    
+    .clip-control label{
+      color:#b9beca;
+      font-size:13px;
+      margin-bottom:4px;
+      display:block;
+    }
+    
+    .clip-select{
+      width:100%;
+      padding:6px;
+      background:#1f232b;
+      color:#e9eaee;
+      border:1px solid #2b2f3a;
+      border-radius:6px;
+      font-size:13px;
+    }
+    
+    /* Measurements Panel */
+    #measurementsPanel{
+      position:absolute;
+      bottom:20px;
+      left:20px;
+      width:280px;
+      max-height:300px;
+      background:rgba(26, 28, 34, 0.95);
+      border:1px solid #2b2f3a;
+      border-radius:10px;
+      padding:16px;
+      display:none;
+      z-index:100;
+      overflow-y:auto;
+      box-shadow:0 8px 32px rgba(0, 0, 0, 0.4);
+    }
+    
+    #measurementsPanel h3{
+      margin:0 0 12px 0;
+      color:#e9eaee;
+      font-size:16px;
+      font-weight:600;
+    }
+    
+    .measurement-item{
+      padding:8px;
+      margin-bottom:6px;
+      background:#1f232b;
+      border-radius:6px;
+      font-size:12px;
+      color:#b9beca;
+    }
+    
+    /* Export Menu */
+    #exportMenu{
+      position:absolute;
+      top:180px;
+      left:20px;
+      width:200px;
+      background:rgba(26, 28, 34, 0.95);
+      border:1px solid #2b2f3a;
+      border-radius:8px;
+      padding:8px;
+      display:none;
+      z-index:1000;
+      box-shadow:0 8px 32px rgba(0, 0, 0, 0.4);
+    }
+    
+    .menu-btn{
+      width:100%;
+      padding:8px 12px;
+      margin-bottom:4px;
+      border:1px solid #2b2f3a;
+      background:#1f232b;
+      color:#e9eaee;
+      border-radius:6px;
+      cursor:pointer;
+      font-size:13px;
+      text-align:left;
+    }
+    
+    .menu-btn:hover{
+      background:#2d3a4f;
+    }
+    
+    .menu-btn:last-child{
+      margin-bottom:0;
+    }
+    
+    /* Scientific Context Panel */
+    #scientificContextPanel{
+      position:fixed;
+      top:80px;
+      right:0;
+      width:320px;
+      max-height:calc(100vh - 100px);
+      background:rgba(26, 28, 34, 0.98);
+      border:1px solid #2b2f3a;
+      border-right:none;
+      border-radius:10px 0 0 10px;
+      padding:0;
+      z-index:90;
+      box-shadow:-4px 0 20px rgba(0, 0, 0, 0.3);
+      transform:translateX(100%);
+      transition:transform 0.3s ease;
+      overflow-y:auto;
+    }
+    
+    #scientificContextPanel.open{
+      transform:translateX(0);
+    }
+    
+    #scientificContextPanel .panel-header{
+      padding:16px;
+      border-bottom:1px solid #2b2f3a;
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      position:sticky;
+      top:0;
+      background:rgba(26, 28, 34, 0.98);
+    }
+    
+    #scientificContextPanel .panel-header h3{
+      margin:0;
+      color:#e9eaee;
+      font-size:15px;
+      font-weight:600;
+    }
+    
+    #scientificContextPanel .panel-content{
+      padding:16px;
+    }
+    
+    #scientificContextPanel .context-section{
+      margin-bottom:16px;
+      padding-bottom:16px;
+      border-bottom:1px solid #2b2f3a;
+    }
+    
+    #scientificContextPanel .context-section:last-child{
+      border-bottom:none;
+      margin-bottom:0;
+    }
+    
+    #scientificContextPanel .context-section h4{
+      margin:0 0 8px 0;
+      color:#e9eaee;
+      font-size:13px;
+      font-weight:600;
+    }
+    
+    #scientificContextPanel .context-section p{
+      margin:0;
+      color:#b9beca;
+      font-size:12px;
+      line-height:1.5;
+    }
+    
+    #scientificContextPanel .metric-icon{
+      display:inline-block;
+      width:12px;
+      height:12px;
+      border-radius:50%;
+      margin-right:6px;
+    }
+    
+    #scientificContextToggle{
+      position:fixed;
+      top:50%;
+      right:0;
+      transform:translateY(-50%);
+      background:#263043;
+      color:#e9eaee;
+      border:1px solid #2b2f3a;
+      border-right:none;
+      border-radius:8px 0 0 8px;
+      padding:12px 8px;
+      cursor:pointer;
+      z-index:91;
+      writing-mode:vertical-rl;
+      text-orientation:mixed;
+      font-size:12px;
+      font-weight:600;
+      transition:background 0.2s;
+    }
+    
+    #scientificContextToggle:hover{
+      background:#2d3a4f;
+    }
+    
+    #scientificContextToggle.open{
+      right:320px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Ball-and-Stick</h1>
+    <div class="meta" id="metaPill">frames: — • atoms: — • residues: —</div>
+    
+    <!-- Metric Selector -->
+    <div style="margin:12px 0;display:flex;align-items:center;gap:12px;">
+      <label for="metricSelect" style="font:13px/1 monospace;color:#c9ceda;font-weight:600;">Metric:</label>
+      <select id="metricSelect" style="padding:8px 12px;background:#1a1c22;color:#e9eaee;border:1px solid #2b2f3a;border-radius:8px;font:13px/1 monospace;cursor:pointer;min-width:180px;">
+        <option value="hotspot">Dynamic Hotspot</option>
+        <option value="anomaly">Dynamic Anomaly</option>
+        <option value="rmsf">RMSF (Flexibility)</option>
+        <option value="tica">tICA Importance</option>
+      </select>
+      <span id="metricInfo" style="font:12px/1.4 sans-serif;color:#9aa3b2;font-style:italic;">Visualize dynamic regions of interest</span>
+    </div>
+    
+    <!-- Timeline Heatmap -->
+    <div style="margin:16px 0;background:#16181d;border:1px solid #2b2f3a;border-radius:8px;padding:12px;">
+      <h4 style="margin:0 0 8px 0;font:13px/1 monospace;color:#c9ceda;font-weight:600;">Timeline Overview</h4>
+      <canvas id="heatmapCanvas" style="width:100%;height:60px;display:block;border:1px solid #2b2f3a;border-radius:4px;cursor:pointer;"></canvas>
+    </div>
+    
+    <div class="controls">
+      <div style="display:flex;gap:10px;align-items:center">
+        <span style="opacity:.75;font:12px/1 monospace">frame</span>
+        <input id="slider" type="range" min="0" max="0" step="1" value="0" />
+        <span id="frameLbl" style="min-width:28px;text-align:right;font:12px/1 monospace">0</span>
+      </div>
+      <button class="btn" id="btnLoad">Load frame</button>
+      <button class="btn" id="btnPlay">Play</button>
+      <button class="btn" id="btnPause" disabled>Pause</button>
+      <!-- Playback Speed Control -->
+      <div style="display:flex;gap:6px;align-items:center">
+        <span style="opacity:.75;font:11px/1 monospace">Speed:</span>
+        <input id="speedSlider" type="range" min="0.25" max="2" step="0.25" value="0.5" style="width:80px;" />
+        <span id="speedLbl" style="min-width:32px;font:11px/1 monospace">0.5x</span>
+      </div>
+    </div>
+    <!-- Colormap - Single Red-White-Blue scheme -->
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px">
+      <label style="font:12px/1 monospace;color:#c9ceda;">Colormap: Red-White-Blue</label>
+      <span style="font:11px/1 monospace;color:#9aa3b2;">(Blue = low, White = mid, Red = high)</span>
+    </div>
+    <div style="display:flex;gap:10px;margin-bottom:12px">
+      <button class="btn" id="btnToggleRMSF">Show RMSF</button>
+      <button class="btn" id="btnToggleContacts">Show Contacts</button>
+      <button class="btn" id="btnShowContacts">Top Contacts</button>
+      <button class="btn" id="btnToggleClipping">Enable Clipping</button>
+      <button class="btn" id="btnToggleMeasure">Measure Distance</button>
+      <button class="btn" id="btnToggleAngle">Measure Angle</button>
+      <button class="btn" id="btnToggleFPS">Show FPS</button>
+      <button class="btn" id="btnExport">Export ▼</button>
+    </div>
+    <div class="viewer">
+      <canvas id="canvas"></canvas>
+      
+      <!-- Legend -->
+      <div id="legend">
+        <div class="title" id="legendTitle">Dynamic Hotspot</div>
+        <div id="legendBar"></div>
+        <div class="ticks">
+          <span id="legendMin">0.00</span><span>0.50</span><span id="legendMax">1.00</span>
+        </div>
+        <div class="desc" id="legendDesc">High values indicate regions of interest</div>
+      </div>
+    </div>
+    <div id="status" style="margin-top:8px;font:12px/1.3 monospace;color:#9aa3b2">initializing…</div>
+    <div id="fpsDisplay" style="margin-top:4px;font:12px/1.3 monospace;color:#51cf66;display:none;">FPS: --</div>
+  </div>
+
+  <!-- Angle Mode Selector Panel -->
+  <div id="angleModePanel" style="display:none;position:fixed;top:120px;right:20px;background:rgba(15,16,18,0.95);border:1px solid #3a4351;border-radius:8px;padding:16px;backdrop-filter:blur(10px);z-index:1000;min-width:200px;">
+    <h3 style="margin:0 0 12px 0;font-size:14px;color:#e8eaed;">Angle Mode</h3>
+    <button class="btn" id="btnAngleMode3Point" style="width:100%;margin-bottom:8px;">3-Point Angle</button>
+    <button class="btn" id="btnAngleMode4Point" style="width:100%;">4-Point Dihedral</button>
+    <div style="margin-top:12px;font-size:11px;color:#9aa3b2;">
+      <div id="angleModeStatus">Mode: 3-Point</div>
+      <div style="margin-top:4px;">Click atoms to measure</div>
+    </div>
+  </div>
+
+  <!-- Atom Info Panel -->
+  <div id="infoPanel"></div>
+
+  <!-- Top Contacts Panel -->
+  <div id="contactsPanel">
+    <h3>Top Interacting Residues</h3>
+    <div id="contactsList"></div>
+    <button id="closeContactsBtn" class="close-btn">Close</button>
+  </div>
+
+  <!-- Clip Plane Controls -->
+  <div id="clipPlaneControls">
+    <h3>Clip Plane Controls</h3>
+    
+    <div class="clip-control">
+      <label>Plane 1 - Axis</label>
+      <select id="clip1Axis" class="clip-select">
+        <option value="x">X-Axis</option>
+        <option value="y" selected>Y-Axis</option>
+        <option value="z">Z-Axis</option>
+      </select>
+    </div>
+    
+    <div class="clip-control">
+      <label>Position: <span id="clip1Value">0</span></label>
+      <input type="range" id="clip1Slider" min="-50" max="50" value="0" step="0.5" style="width:100%;" />
+    </div>
+    
+    <div style="margin-top:16px;display:flex;gap:8px;">
+      <button class="btn" id="btnAddPlane" style="flex:1;">Add Plane</button>
+      <button class="btn" id="btnResetPlanes" style="flex:1;">Reset</button>
+    </div>
+    
+    <div style="margin-top:8px;">
+      <label style="color:#b9beca;font-size:12px;display:flex;align-items:center;gap:6px;">
+        <input type="checkbox" id="chkPlaneHelpers" checked />
+        Show plane helpers
+      </label>
+    </div>
+    
+    <button id="closeClipBtn" class="close-btn">Close</button>
+  </div>
+
+  <!-- Measurements Panel -->
+  <div id="measurementsPanel">
+    <h3>Measurements</h3>
+    <div id="measurementsList">
+      <div style="color:#9aa3b2;font-size:12px;text-align:center;">No measurements yet</div>
+    </div>
+    
+    <div style="margin-top:12px;">
+      <label style="color:#b9beca;font-size:12px;display:flex;align-items:center;gap:6px;">
+        <input type="checkbox" id="chkPersistMeasurements" />
+        Persist across frames
+      </label>
+    </div>
+    
+    <button class="btn" id="btnClearMeasurements" style="margin-top:12px;width:100%;">
+      Clear All
+    </button>
+  </div>
+
+  <!-- Export Menu -->
+  <div id="exportMenu">
+    <button class="menu-btn" id="btnExportPNG">PNG Image</button>
+    <button class="menu-btn" id="btnExportSVG">SVG Vector</button>
+    <button class="menu-btn" id="btnExportMeasurements">Measurements (JSON)</button>
+    <button class="menu-btn" id="btnExportContacts">Contacts (CSV)</button>
+  </div>
+
+  <!-- Scientific Context Panel Toggle -->
+  <button id="scientificContextToggle">📊 Context</button>
+
+  <!-- Scientific Context Panel -->
+  <div id="scientificContextPanel">
+    <div class="panel-header">
+      <h3>🔬 Scientific Context</h3>
+      <button id="closeContextPanel" style="background:none;border:none;color:#9aa3b2;cursor:pointer;font-size:18px;">✕</button>
+    </div>
+    <div class="panel-content">
+      <div class="context-section" id="currentMetricContext">
+        <h4><span class="metric-icon" style="background:#ff6666;"></span>Dynamic Hotspot</h4>
+        <p><strong>What it measures:</strong> Identifies residues undergoing statistically significant dynamic changes or transitions during the simulation.</p>
+        <p style="margin-top:8px;"><strong>Biological meaning:</strong> High hotspot values often indicate functionally important regions such as active sites, allosteric sites, or regions undergoing conformational changes. These residues may be critical for protein function.</p>
+        <p style="margin-top:8px;"><strong>Interpretation:</strong> Peak values (red) suggest residues that are dynamically active and potentially involved in biological function. Low values (blue) indicate stable structural regions.</p>
+      </div>
+      
+      <div class="context-section">
+        <h4>📈 Understanding the Timeline</h4>
+        <p>The timeline heatmap shows the maximum (or average) metric value across all residues for each frame. This provides a temporal map of structural behavior:</p>
+        <ul style="margin:8px 0 0 16px;padding:0;color:#b9beca;font-size:12px;line-height:1.6;">
+          <li>Peaks correspond to conformational changes</li>
+          <li>Click anywhere on the timeline to jump to that frame</li>
+          <li>Color intensity reflects the magnitude of the metric</li>
+        </ul>
+      </div>
+      
+      <div class="context-section">
+        <h4>🎨 Color Scale Reference</h4>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
+          <div style="width:100%;height:16px;background:linear-gradient(to right,#0000ff,#4fa9ff,#ffffff,#ffb6c1,#ff6666,#8b0000);border-radius:3px;border:1px solid #3a4351;"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:11px;color:#9aa3b2;">
+          <span>Low (stable)</span>
+          <span>Medium</span>
+          <span>High (active)</span>
+        </div>
+      </div>
+      
+      <div class="context-section">
+        <h4>📚 Metric Definitions</h4>
+        <div style="margin-top:8px;" id="metricDefinitions">
+          <p><strong style="color:#ff9933;">Dynamic Anomaly:</strong> Detects residues adopting statistically rare conformations using machine learning-based anomaly detection.</p>
+          <p style="margin-top:6px;"><strong style="color:#ffcc00;">RMSF:</strong> Root Mean Square Fluctuation - quantifies time-averaged positional variance of each residue relative to the mean structure.</p>
+          <p style="margin-top:6px;"><strong style="color:#66ff66;">tICA Importance:</strong> Time-lagged Independent Component Analysis importance - identifies residues contributing to the slowest collective motions.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/lib/three.min.js"></script>
+  <script src="/static/lib/OrbitControls.js"></script>
+  <script src="/static/js/utils/scientific_context.js"></script>
+  <script src="/static/js/ballstick_viewer.js?v=1762854294"></script>
+  <script>
+    // Add button event listeners
+    document.getElementById('btnToggleRMSF').addEventListener('click', () => {
+      const btn = document.getElementById('btnToggleRMSF');
+      btn.textContent = btn.textContent === 'Show RMSF' ? 'Show Hotspots' : 'Show RMSF';
+      window.toggleRMSFColoring();
+    });
+
+    document.getElementById('btnToggleContacts').addEventListener('click', () => {
+      const btn = document.getElementById('btnToggleContacts');
+      btn.textContent = btn.textContent === 'Show Contacts' ? 'Hide Contacts' : 'Show Contacts';
+      window.toggleContactNetwork();
+    });
+
+    document.getElementById('btnShowContacts').addEventListener('click', () => {
+      window.showTopContacts();
+    });
+
+    document.getElementById('closeContactsBtn').addEventListener('click', () => {
+      document.getElementById('contactsPanel').style.display = 'none';
+    });
+    
+    // Phase 3: Clipping controls
+    document.getElementById('btnToggleClipping').addEventListener('click', () => {
+      const btn = document.getElementById('btnToggleClipping');
+      const enabled = window.toggleClipping();
+      btn.textContent = enabled ? 'Disable Clipping' : 'Enable Clipping';
+      document.getElementById('clipPlaneControls').style.display = enabled ? 'block' : 'none';
+    });
+    
+    document.getElementById('clip1Axis').addEventListener('change', (e) => {
+      window.updateClipPlane(0, e.target.value, parseFloat(document.getElementById('clip1Slider').value));
+    });
+    
+    document.getElementById('clip1Slider').addEventListener('input', (e) => {
+      const value = parseFloat(e.target.value);
+      document.getElementById('clip1Value').textContent = value.toFixed(1);
+      const axis = document.getElementById('clip1Axis').value;
+      window.updateClipPlane(0, axis, value);
+    });
+    
+    document.getElementById('btnAddPlane').addEventListener('click', () => {
+      const index = window.addClipPlane();
+      if (index >= 0) {
+        console.log('Added clip plane', index);
+      }
+    });
+    
+    document.getElementById('btnResetPlanes').addEventListener('click', () => {
+      window.resetClipPlanes();
+      document.getElementById('clip1Slider').value = 0;
+      document.getElementById('clip1Value').textContent = '0';
+      document.getElementById('clip1Axis').value = 'y';
+    });
+    
+    document.getElementById('chkPlaneHelpers').addEventListener('change', () => {
+      window.togglePlaneHelpers();
+    });
+    
+    document.getElementById('closeClipBtn').addEventListener('click', () => {
+      document.getElementById('btnToggleClipping').click();
+    });
+    
+    // Phase 3: Measurement controls
+    document.getElementById('btnToggleMeasure').addEventListener('click', () => {
+      const btn = document.getElementById('btnToggleMeasure');
+      const isActive = window.toggleMeasurementMode();
+      btn.textContent = isActive ? 'Stop Measuring' : 'Measure Distance';
+      document.getElementById('measurementsPanel').style.display = isActive ? 'block' : 'none';
+    });
+    
+    document.getElementById('btnClearMeasurements').addEventListener('click', () => {
+      window.clearMeasurements();
+    });
+    
+    document.getElementById('chkPersistMeasurements').addEventListener('change', () => {
+      window.togglePersistMeasurements();
+    });
+
+    // Phase 4: Angle measurement controls
+    document.getElementById('btnToggleAngle').addEventListener('click', () => {
+      const btn = document.getElementById('btnToggleAngle');
+      const enabled = window.toggleAngleMeasurementMode();
+      btn.textContent = enabled ? 'Stop Angle' : 'Measure Angle';
+      btn.style.background = enabled ? '#e74c3c' : '';
+      
+      // Show/hide angle mode panel
+      const panel = document.getElementById('angleModePanel');
+      if (panel) {
+        panel.style.display = enabled ? 'block' : 'none';
+      }
+      
+      // Disable distance measurement if angle is enabled
+      if (enabled) {
+        const measureBtn = document.getElementById('btnToggleMeasure');
+        if (measureBtn.textContent === 'Stop Measure') {
+          measureBtn.click();
+        }
+      }
+    });
+
+    // Angle mode switchers
+    document.getElementById('btnAngleMode3Point').addEventListener('click', () => {
+      const is3Point = true;
+      const currentMode = window.getAngleMode();
+      if (currentMode !== is3Point) window.toggleAngleMode();
+      document.getElementById('angleModeStatus').textContent = 'Mode: 3-Point';
+    });
+
+    document.getElementById('btnAngleMode4Point').addEventListener('click', () => {
+      const is3Point = false;
+      const currentMode = window.getAngleMode();
+      if (currentMode !== is3Point) window.toggleAngleMode();
+      document.getElementById('angleModeStatus').textContent = 'Mode: 4-Point Dihedral';
+    });
+
+    // Phase 4: FPS display toggle
+    document.getElementById('btnToggleFPS').addEventListener('click', () => {
+      const btn = document.getElementById('btnToggleFPS');
+      const enabled = window.toggleFPSDisplay();
+      btn.textContent = enabled ? 'Hide FPS' : 'Show FPS';
+    });
+
+    // Phase 3: Export controls
+    document.getElementById('btnExport').addEventListener('click', () => {
+      const menu = document.getElementById('exportMenu');
+      menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+    });
+    
+    document.getElementById('btnExportPNG').addEventListener('click', () => {
+      window.exportScreenshot('png');
+      document.getElementById('exportMenu').style.display = 'none';
+    });
+    
+    document.getElementById('btnExportSVG').addEventListener('click', () => {
+      window.exportSVG();
+      document.getElementById('exportMenu').style.display = 'none';
+    });
+    
+    document.getElementById('btnExportMeasurements').addEventListener('click', () => {
+      window.exportMeasurements();
+      document.getElementById('exportMenu').style.display = 'none';
+    });
+    
+    document.getElementById('btnExportContacts').addEventListener('click', () => {
+      window.exportContactsData();
+      document.getElementById('exportMenu').style.display = 'none';
+    });
+    
+    // Close export menu when clicking outside
+    document.addEventListener('click', (e) => {
+      const menu = document.getElementById('exportMenu');
+      const btn = document.getElementById('btnExport');
+      if (menu.style.display === 'block' && !menu.contains(e.target) && e.target !== btn) {
+        menu.style.display = 'none';
+      }
+    });
+
+    // Playback speed control
+    document.getElementById('speedSlider').addEventListener('input', (e) => {
+      const speed = parseFloat(e.target.value);
+      document.getElementById('speedLbl').textContent = speed + 'x';
+      if (window.setPlaybackSpeed) {
+        window.setPlaybackSpeed(speed);
+      }
+    });
+
+    // Colormap selector
+    document.getElementById('colormapSelect').addEventListener('change', async (e) => {
+      const colormap = e.target.value;
+      if (window.setColormap) {
+        window.setColormap(colormap);
+        // Reload current frame to apply new colormap
+        if (window.reloadCurrentFrame) {
+          await window.reloadCurrentFrame();
+        }
+      }
+    });
+
+    // Initialize Scientific Context Panel using shared module
+    if (window.ScientificContext) {
+      window.ScientificContext.initScientificContextPanel();
+    }
+  </script>
+</body>
+</html>

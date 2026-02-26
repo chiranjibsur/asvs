@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Molecular Visualizer</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="preload" href="/static/lib/three.min.js" as="script">
+  <link rel="preload" href="/static/lib/OrbitControls.js" as="script">
+  <link rel="stylesheet" href="/static/css/3d_visualizer.css">
+  <style>
+    body { margin:0; background:#2d2f33; color:#e8e8ea; font-family: -apple-system, system-ui, Helvetica, Arial, sans-serif; }
+    .wrap { max-width: 1200px; margin: 24px auto; padding: 0 16px; }
+    .title { font-size: 28px; font-weight: 700; margin-bottom: 10px; }
+    .bar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin: 10px 0 16px; }
+    .pill { background:#3a3d42; padding:6px 10px; border-radius: 8px; }
+    .btn  { background:#10a37f; color:#fff; border:0; padding:8px 12px; border-radius:8px; cursor:pointer; }
+    .btn:disabled { background:#4b4f55; cursor:not-allowed; }
+    #viewerCanvas { width:100%; height:620px; display:block; background:#151618; border-radius:10px; }
+    #status { font-size:12px; opacity:0.8; margin-top:8px; white-space:pre-wrap; }
+    input[type="range"] { width: 360px; }
+    .right { margin-left:auto; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="title">Molecular Visualizer</div>
+    <div class="bar">
+      <span class="pill" id="metaPill">frames: — • atoms: — • residues: —</span>
+      <button class="btn" id="btnLoad">Load frame 0</button>
+      <button class="btn" id="btnPlay">Play</button>
+      <button class="btn" id="btnPause" disabled>Pause</button>
+      <label class="pill">frame
+        <input id="frameSlider" type="range" min="0" max="0" step="1" value="0">
+        <span id="frameLabel">0</span>
+      </label>
+      <span class="pill right">hotspot color scale: blue → white → red</span>
+    </div>
+
+    <canvas id="viewerCanvas"></canvas>
+    <div id="status"></div>
+  </div>
+
+  <script src="/static/lib/three.min.js"></script>
+  <script src="/static/lib/OrbitControls.js"></script>
+  <script src="/static/js/simple_visualizer.js"></script>
+</body>
+</html>
