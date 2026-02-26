@@ -4,10 +4,17 @@ import json
 from flask import Flask, jsonify, render_template, send_from_directory, abort
 
 from trajectory_adapter import get_adapter
-from trame_ribbon_app import (
-    ensure_ribbon_server,
-    ribbon_server_url,
-)
+
+try:
+    from trame_ribbon_app import (
+        ensure_ribbon_server,
+        ribbon_server_url,
+    )
+    _RIBBON_AVAILABLE = True
+except ImportError as _ribbon_import_err:
+    _RIBBON_AVAILABLE = False
+    print(f"[WARNING] Ribbon viewer unavailable: {_ribbon_import_err}")
+    print("[WARNING] Install vtk, trame, and trame-vtklocal to enable the ribbon viewer.")
 
 app = Flask(__name__)
 
@@ -315,6 +322,13 @@ def viewer_ribbon():
     The ribbon viewer runs on a separate Trame server (port 9887 by default).
     This route ensures the server is running and embeds it in an iframe.
     """
+    if not _RIBBON_AVAILABLE:
+        return (
+            "Ribbon viewer is unavailable. "
+            "Please install vtk, trame, and trame-vtklocal: "
+            "pip install -r requirements.txt",
+            503,
+        )
     print("[Flask] Navigating to Ribbon viewer - ensuring Trame server is running...")
     ensure_ribbon_server()
     url = ribbon_server_url()
