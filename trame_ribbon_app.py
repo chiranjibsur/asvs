@@ -20,6 +20,9 @@ from trajectory_adapter import get_adapter
 # Enable extra VTK pipeline diagnostics by setting ASVS_DEBUG_VTK=1
 _DEBUG_VTK = os.environ.get("ASVS_DEBUG_VTK", "0") == "1"
 
+# Enable measurement debug logging by setting ASVS_DEBUG_MEASURE=1
+_DEBUG_MEASURE = os.environ.get("ASVS_DEBUG_MEASURE", "0") == "1"
+
 # -----------------------------------------------------------------------------
 # Data loading helpers
 # -----------------------------------------------------------------------------
@@ -29,6 +32,10 @@ VIEWER_DIR = os.path.join(ROOT, "viewer")
 # Padding used to widen a degenerate (all-equal) scalar range so the LUT
 # has a finite interval to map colours onto.
 _DEGENERATE_RANGE_PADDING = 0.5
+
+# Measurement overlay visual properties
+_MEASUREMENT_LABEL_FONT_SIZE = 16
+_MEASUREMENT_LABEL_COLOR = (0.0, 1.0, 1.0)  # Cyan
 
 HOTSPOTS_RES_PATH = os.environ.get(
     "ASVS_HOTSPOTS_RES",
@@ -67,6 +74,19 @@ def _normalized_payload(payload: Dict) -> Dict:
     if isinstance(payload, dict) and "normalized" in payload:
         return payload["normalized"]
     return payload or {}
+
+
+def _first_not_none(d: Dict, *keys):
+    """Return the first value in *d* whose key is in *keys* and is not None.
+
+    Unlike ``dict.get(key) or fallback``, this is safe when the stored value
+    is falsy (e.g. 0 or 0.0) because it uses an explicit ``is None`` check.
+    """
+    for k in keys:
+        v = d.get(k)
+        if v is not None:
+            return v
+    return None
 
 
 HOTSPOTS = _load_json(HOTSPOTS_RES_PATH, {})
@@ -323,15 +343,27 @@ def _perform_pick(x: int, y: int) -> int:
     # Try cell picker first
     if cell_picker.Pick(x, y, 0, renderer):
         pick_pos = cell_picker.GetPickPosition()
+        if _DEBUG_MEASURE:
+            print(f"[ASVS_DEBUG_MEASURE] cell_picker hit: cell_id={cell_picker.GetCellId()}, pos={pick_pos}")
         if pick_pos and pick_pos != (0, 0, 0):
-            return _pick_position_to_residue(pick_pos)
-    
+            residue_idx = _pick_position_to_residue(pick_pos)
+            if _DEBUG_MEASURE:
+                print(f"[ASVS_DEBUG_MEASURE] cell_picker -> residue_idx={residue_idx}")
+            return residue_idx
+
     # Fall back to point picker
     if point_picker.Pick(x, y, 0, renderer):
         pick_pos = point_picker.GetPickPosition()
+        if _DEBUG_MEASURE:
+            print(f"[ASVS_DEBUG_MEASURE] point_picker hit: point_id={point_picker.GetPointId()}, pos={pick_pos}")
         if pick_pos and pick_pos != (0, 0, 0):
-            return _pick_position_to_residue(pick_pos)
-    
+            residue_idx = _pick_position_to_residue(pick_pos)
+            if _DEBUG_MEASURE:
+                print(f"[ASVS_DEBUG_MEASURE] point_picker -> residue_idx={residue_idx}")
+            return residue_idx
+
+    if _DEBUG_MEASURE:
+        print(f"[ASVS_DEBUG_MEASURE] no pick hit at ({x}, {y})")
     return -1
 
 # -----------------------------------------------------------------------------
@@ -435,6 +467,7 @@ _measurement_mode: Optional[str] = None  # "distance" or "angle"
 _measurement_picks: List[int] = []  # Residue indices for measurement
 _measurement_result: str = ""
 measurement_actors: List[vtk.vtkActor] = []
+_measurement_label_actor: Optional[vtk.vtkTextActor] = None  # 2D overlay label
 
 def _calculate_distance(idx1: int, idx2: int) -> float:
     """Calculate distance between two residue CA atoms in Angstroms."""
@@ -501,28 +534,60 @@ def _create_measurement_line(idx1: int, idx2: int, color: Tuple[float, float, fl
 
 def _clear_measurement_actors():
     """Clear measurement visualization actors."""
-    global measurement_actors
+    global measurement_actors, _measurement_label_actor
     for actor in measurement_actors:
         renderer.RemoveActor(actor)
     measurement_actors.clear()
+    if _measurement_label_actor is not None:
+        renderer.RemoveActor(_measurement_label_actor)
+        _measurement_label_actor = None
 
 def _update_measurement_display():
     """Update measurement visualization based on current picks."""
+    global _measurement_label_actor
     _clear_measurement_actors()
-    
+
     if len(_measurement_picks) >= 2:
         # Draw line between first two picks
         actor = _create_measurement_line(_measurement_picks[0], _measurement_picks[1], (0.0, 1.0, 1.0))
         if actor:
             measurement_actors.append(actor)
             renderer.AddActor(actor)
-    
+
     if len(_measurement_picks) >= 3:
         # Draw line for angle measurement (second to third)
         actor = _create_measurement_line(_measurement_picks[1], _measurement_picks[2], (0.0, 1.0, 0.5))
         if actor:
             measurement_actors.append(actor)
             renderer.AddActor(actor)
+
+    # Create/update text label at midpoint of first two picked points
+    if _measurement_result and len(_measurement_picks) >= 2:
+        idx1, idx2 = _measurement_picks[0], _measurement_picks[1]
+        if idx1 < len(_ca_positions_cache) and idx2 < len(_ca_positions_cache):
+            p1 = _ca_positions_cache[idx1]
+            p2 = _ca_positions_cache[idx2]
+            midpoint = (
+                (p1[0] + p2[0]) / 2.0,
+                (p1[1] + p2[1]) / 2.0,
+                (p1[2] + p2[2]) / 2.0,
+            )
+            label_actor = vtk.vtkTextActor()
+            label_actor.SetInput(_measurement_result)
+            label_actor.GetTextProperty().SetFontSize(_MEASUREMENT_LABEL_FONT_SIZE)
+            label_actor.GetTextProperty().SetColor(*_MEASUREMENT_LABEL_COLOR)
+            label_actor.GetTextProperty().SetBold(True)
+            label_actor.GetTextProperty().SetShadow(True)
+            # Position in world coordinates
+            label_actor.GetPositionCoordinate().SetCoordinateSystemToWorld()
+            label_actor.GetPositionCoordinate().SetValue(*midpoint)
+            renderer.AddActor(label_actor)
+            _measurement_label_actor = label_actor
+
+            if _DEBUG_MEASURE:
+                print(f"[ASVS_DEBUG_MEASURE] overlay updated: label='{_measurement_result}' at {midpoint}")
+
+    render_window.Render()
 
 # -----------------------------------------------------------------------------
 # Task 4: Residue info helper functions
@@ -685,6 +750,10 @@ def update_ribbon_geometry(frame: int, metric: str) -> None:
     # Rebuild contact actors if contacts are visible
     if _contacts_visible:
         _show_contacts(True)
+
+    # Refresh measurement overlay so line positions track the updated CA coords
+    if _measurement_picks:
+        _update_measurement_display()
 
     if not _scene_initialized:
         renderer.ResetCamera()
@@ -1048,7 +1117,11 @@ def _update_contacts_list():
 def _handle_residue_pick(residue_idx: int):
     """Handle picking a residue (for measurement or info display)."""
     global _measurement_picks, _measurement_result, _measurement_mode
-    
+
+    if _DEBUG_MEASURE:
+        pick_pos = _ca_positions_cache[residue_idx] if residue_idx < len(_ca_positions_cache) else None
+        print(f"[ASVS_DEBUG_MEASURE] handle_pick: residue_idx={residue_idx}, mode={_measurement_mode}, pos={pick_pos}")
+
     if _measurement_mode == "distance":
         _measurement_picks.append(residue_idx)
         
@@ -1059,6 +1132,8 @@ def _handle_residue_pick(residue_idx: int):
             name1 = f"{res1.get('resname', '?')}{res1.get('resnum', _measurement_picks[0])}"
             name2 = f"{res2.get('resname', '?')}{res2.get('resnum', _measurement_picks[1])}"
             _measurement_result = f"Distance: {dist:.2f} Å between {name1} and {name2}"
+            if _DEBUG_MEASURE:
+                print(f"[ASVS_DEBUG_MEASURE] computed distance: {dist:.4f} Å ({name1} → {name2})")
             state.measurement_result = _measurement_result
             _update_measurement_display()
             ctrl.update_view()
@@ -1077,6 +1152,8 @@ def _handle_residue_pick(residue_idx: int):
             name2 = f"{res2.get('resname', '?')}{res2.get('resnum', _measurement_picks[1])}"
             name3 = f"{res3.get('resname', '?')}{res3.get('resnum', _measurement_picks[2])}"
             _measurement_result = f"Angle: {angle:.1f}° at {name2} ({name1}-{name2}-{name3})"
+            if _DEBUG_MEASURE:
+                print(f"[ASVS_DEBUG_MEASURE] computed angle: {angle:.2f}° at {name2} ({name1}-{name2}-{name3})")
             state.measurement_result = _measurement_result
             _update_measurement_display()
             ctrl.update_view()
@@ -1168,7 +1245,8 @@ def _on_measurement_mode_change(measurement_mode, **_):
     state.measurement_result = ""
     state.measurement_picks_display = ""
     _clear_measurement_actors()
-    
+    render_window.Render()
+
     if measurement_mode == "distance":
         state.status_message = "📏 Click 2 residues to measure distance"
     elif measurement_mode == "angle":
@@ -1196,6 +1274,7 @@ def clear_measurement():
     state.measurement_result = ""
     state.measurement_picks_display = ""
     _clear_measurement_actors()
+    render_window.Render()
     ctrl.update_view()
 
 
@@ -1256,44 +1335,46 @@ def on_vtk_click(event):
     The event contains screen coordinates that we use to perform VTK picking.
     This connects user mouse clicks to the measurement and info display system.
     
-    trame-vtklocal event format may include: x, y, clientX, clientY, offsetX, offsetY
+    trame-vtk VtkRemoteView event format: x, y (in render-window display coords)
     """
     if not event:
         state.status_message = "Click detected but no event data"
         return
-    
-    # Debug: Log the event structure to understand trame-vtklocal format
-    print(f"[DEBUG] Click event keys: {event.keys() if isinstance(event, dict) else type(event)}")
-    print(f"[DEBUG] Click event: {event}")
-    
-    # Get click position from event - try multiple formats
-    # trame-vtklocal might use different coordinate systems
+
+    if _DEBUG_MEASURE:
+        print(f"[ASVS_DEBUG_MEASURE] click event keys: {list(event.keys()) if isinstance(event, dict) else type(event)}")
+        print(f"[ASVS_DEBUG_MEASURE] click event: {event}")
+
+    # Safe coordinate extraction: use `is None` guard so that a value of 0
+    # is not treated as missing (the old `or`-chain falsely skipped 0).
     x = None
     y = None
-    
-    # Try direct coordinates
+
     if isinstance(event, dict):
-        x = event.get("x") or event.get("clientX") or event.get("offsetX")
-        y = event.get("y") or event.get("clientY") or event.get("offsetY")
-        
+        x = _first_not_none(event, "x", "clientX", "offsetX")
+        y = _first_not_none(event, "y", "clientY", "offsetY")
+
         # Try nested position object
         if x is None and "position" in event:
             pos = event.get("position", {})
             if isinstance(pos, dict):
-                x = pos.get("x")
-                y = pos.get("y")
-        
+                x = _first_not_none(pos, "x")
+                y = _first_not_none(pos, "y")
+
         # Try canvas coordinates
         if x is None and "canvas" in event:
             canvas = event.get("canvas", {})
             if isinstance(canvas, dict):
-                x = canvas.get("x")
-                y = canvas.get("y")
-    
+                x = _first_not_none(canvas, "x")
+                y = _first_not_none(canvas, "y")
+
     if x is None or y is None:
-        state.status_message = f"Click position not available in event: {list(event.keys()) if isinstance(event, dict) else 'not a dict'}"
+        state.status_message = (
+            f"Click position not available in event: "
+            f"{list(event.keys()) if isinstance(event, dict) else 'not a dict'}"
+        )
         return
-    
+
     # Convert to integers (screen coordinates)
     try:
         x = int(x)
@@ -1301,13 +1382,17 @@ def on_vtk_click(event):
     except (ValueError, TypeError):
         state.status_message = f"Invalid click coordinates: x={x}, y={y}"
         return
-    
-    print(f"[DEBUG] Extracted coordinates: x={x}, y={y}")
-    
+
+    if _DEBUG_MEASURE:
+        print(f"[ASVS_DEBUG_MEASURE] extracted coords: x={x}, y={y}")
+
     # Perform VTK picking to find residue
     state.status_message = f"Picking at ({x}, {y})..."
     residue_idx = _perform_pick(x, y)
-    
+
+    if _DEBUG_MEASURE:
+        print(f"[ASVS_DEBUG_MEASURE] pick result: residue_idx={residue_idx}")
+
     if residue_idx >= 0:
         residue = RESIDUES[residue_idx] if residue_idx < NUM_RESIDUES else {}
         resname = residue.get("resname", "UNK")

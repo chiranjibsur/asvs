@@ -532,6 +532,114 @@ def test_focus_on_residue():
     return True
 
 
+def test_measurement_debug_flag():
+    """Test that ASVS_DEBUG_MEASURE flag is exposed."""
+    print("\nTesting measurement debug flag...")
+
+    import trame_ribbon_app
+
+    assert hasattr(trame_ribbon_app, '_DEBUG_MEASURE'), "Missing _DEBUG_MEASURE flag"
+    assert isinstance(trame_ribbon_app._DEBUG_MEASURE, bool), "_DEBUG_MEASURE should be bool"
+
+    print("✓ Measurement debug flag present")
+    return True
+
+
+def test_measurement_label_actor():
+    """Test that measurement label actor is tracked."""
+    print("\nTesting measurement label actor tracking...")
+
+    import trame_ribbon_app
+
+    assert hasattr(trame_ribbon_app, '_measurement_label_actor'), \
+        "Missing _measurement_label_actor global"
+
+    print("✓ Measurement label actor tracking present")
+    return True
+
+
+def test_measurement_clear_actors():
+    """Test that _clear_measurement_actors clears the label actor too."""
+    print("\nTesting measurement clear actors...")
+
+    import trame_ribbon_app
+
+    # Populate CA positions
+    trame_ribbon_app.update_ribbon_geometry(0, 'hotspot')
+
+    # Manually set a fake label actor reference to verify it gets cleared
+    import vtk
+    mock_label_actor = vtk.vtkTextActor()
+    trame_ribbon_app._measurement_label_actor = mock_label_actor
+
+    trame_ribbon_app._clear_measurement_actors()
+
+    assert trame_ribbon_app._measurement_label_actor is None, \
+        "_measurement_label_actor should be None after clear"
+    assert len(trame_ribbon_app.measurement_actors) == 0, \
+        "measurement_actors list should be empty after clear"
+
+    print("✓ Clear measurement actors clears label actor")
+    return True
+
+
+def test_coordinate_extraction_zero_safe():
+    """Test that _first_not_none correctly handles x=0 or y=0 (falsy-zero fix)."""
+    print("\nTesting coordinate extraction for x=0/y=0...")
+
+    import trame_ribbon_app
+
+    # Verify the module-level helper exists
+    assert hasattr(trame_ribbon_app, '_first_not_none'), "Missing _first_not_none helper"
+
+    fn = trame_ribbon_app._first_not_none
+
+    # x=0 must NOT be skipped (the old `or`-chain bug treated it as missing)
+    assert fn({"x": 0, "y": 5}, "x") == 0, "x=0 should be returned, not skipped"
+    assert fn({"x": 0, "y": 5}, "y") == 5
+
+    # Normal positive values
+    assert fn({"x": 100, "y": 200}, "x", "clientX") == 100
+
+    # Fallback to secondary key when primary is absent
+    assert fn({"clientX": 42}, "x", "clientX") == 42
+
+    # All keys absent → None
+    assert fn({}, "x", "clientX") is None
+
+    print("✓ x=0 / y=0 coordinates correctly extracted via _first_not_none")
+    return True
+
+
+def test_measurement_overlay_refresh_on_frame():
+    """Test that measurement overlay is refreshed when frame changes."""
+    print("\nTesting measurement overlay refresh on frame change...")
+
+    import trame_ribbon_app
+
+    trame_ribbon_app.update_ribbon_geometry(0, 'hotspot')
+
+    # Set up a two-point distance measurement
+    trame_ribbon_app._measurement_mode = "distance"
+    trame_ribbon_app._measurement_picks = [0, 1]
+    trame_ribbon_app._measurement_result = "Distance: 3.80 Å between A1 and A2"
+
+    # Now update to a new frame - overlay should be regenerated without error
+    try:
+        trame_ribbon_app.update_ribbon_geometry(0, 'hotspot')
+    except Exception as exc:
+        assert False, f"Frame update with active measurement raised: {exc}"
+
+    # Clean up
+    trame_ribbon_app._measurement_mode = None
+    trame_ribbon_app._measurement_picks = []
+    trame_ribbon_app._measurement_result = ""
+    trame_ribbon_app._clear_measurement_actors()
+
+    print("✓ Measurement overlay refreshes cleanly on frame update")
+    return True
+
+
 def main():
     """Run all tests."""
     print("=" * 60)
@@ -561,6 +669,12 @@ def main():
         test_hover_tooltips,
         test_bookmarks,
         test_focus_on_residue,
+        # Measurement fix tests
+        test_measurement_debug_flag,
+        test_measurement_label_actor,
+        test_measurement_clear_actors,
+        test_coordinate_extraction_zero_safe,
+        test_measurement_overlay_refresh_on_frame,
     ]
     
     passed = 0
