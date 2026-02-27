@@ -203,39 +203,143 @@ App running at:
 ## How to Use
 
 ### Ribbon Viewer (Trame-based, server-side VTK)
+
+#### Required data files
+
+| File | Env override | Contents |
+|------|-------------|----------|
+| `viewer/topology.pdb` | `ASVS_PDB` | Protein topology (PDB format) |
+| `viewer/trajectory.xtc` | `ASVS_XTC` | MD trajectory frames (XTC format) |
+| `viewer/hotspots_residue.json` | `ASVS_HOTSPOTS_RES` | Per-frame hotspot scores keyed by frame index → residue index |
+| `viewer/anomaly_residue.json` | `ASVS_ANOMALY` | Per-frame anomaly scores keyed by frame index → residue index |
+| `viewer/rmsf_residue.json` | `ASVS_RMSF` | Frame-independent RMSF (normalized payload keyed by residue index) |
+| `viewer/tica_importance.json` | `ASVS_TICA` | Frame-independent tICA importance (normalized payload keyed by residue index) |
+| `viewer/contacts.json` | `ASVS_CONTACTS` | Contact network (`{"contacts": [...]}`) |
+
 1. Ensure trajectory data is in place:
-   - `viewer/topology.pdb` — protein topology
-   - `viewer/trajectory.xtc` — MD trajectory frames
-   - `viewer/hotspots_residue.json`, `viewer/anomaly_residue.json`, etc. (optional ML data)
-   
-   Or set environment variables pointing to your own files:
    ```bash
+   # Default paths (relative to project root)
+   viewer/topology.pdb
+   viewer/trajectory.xtc
+   
+   # Or point to your own files via environment variables
    export ASVS_PDB=/path/to/topology.pdb
    export ASVS_XTC=/path/to/trajectory.xtc
    ```
 
 2. Start the ribbon viewer:
    ```bash
-   python trame_ribbon_app.py          # runs on http://localhost:9887
-   python trame_ribbon_app.py --port 8888  # custom port
+   python trame_ribbon_app.py                    # runs on http://127.0.0.1:9887
+   python trame_ribbon_app.py --port 8888        # custom port
+   python trame_ribbon_app.py --address 0.0.0.0  # bind all interfaces
    ```
 
 3. Interactive features:
    - **Frame slider** — drag the slider in the toolbar to change trajectory frames; ribbon geometry and coloring update automatically
    - **Play/Pause** — click the ▶ button to start animation; the asyncio-based loop increments frames non-blocking
    - **Step buttons** — ⏮ / ⏭ step one frame at a time
-   - **Metric** dropdown — switch between Hotspot, Anomaly, RMSF, tICA coloring
-   - **Colormap** — Red-White-Blue gradient (blue = low, red = high)
-   - **Distance / Angle** tools — click residues to measure
-   - **Contacts** — toggle contact network lines
-   - **Clip** — apply an axis-aligned clipping plane
-   - **📷** — export the current view as a PNG snapshot
+   - **Metric** dropdown — switch between the four coloring metrics (see table below)
+   - **Colormap** — Red-White-Blue gradient (blue = low, white = mid, red = high)
+   - **Hover tooltip** — move the mouse over the ribbon to see the residue identity and active metric score
+   - **Click to select** — left-click on the ribbon to select the nearest Cα residue; shows the Residue Info panel with all four metric scores and adds a yellow wireframe-sphere highlight
+   - **Prev / Next navigation** — cycle through residues in sequence (0-based Cα order from the trajectory)
+   - **Clear selection** — removes the highlight and closes the Residue Info panel
+   - **Residue dropdown** — select any of the first 100 residues by name from the panel
+   - **Search** — type a residue name, number, or chain ID to find and navigate to residues
+   - **Distance / Angle** tools — activate a mode, then click residues; measurement lines are drawn and the result shown in the status bar
+   - **Contacts** — toggle contact network tubes (top 50 by frequency from `contacts.json`)
+   - **Clip** — apply an axis-aligned clipping plane (X / Y / Z) with a 0–100 % slider
+   - **Multi** — enable multi-residue selection for aggregate metric statistics
+   - **📷** — export the current view as a timestamped PNG snapshot
 
 4. Debug logging: set `ASVS_DEBUG_VTK=1` for per-frame VTK diagnostics:
    ```bash
    ASVS_DEBUG_VTK=1 python trame_ribbon_app.py
    ```
    Prints frame index, number of points/cells, active scalar name, and scalar range on every update.
+
+#### Metric dropdown — source of truth
+
+The dropdown options are generated directly from `METRIC_CONFIG` in `trame_ribbon_app.py`:
+
+| UI label (shown in dropdown) | State key (`current_metric`) | VTK scalar array | Data source | Frame-dependent | Colormap |
+|------------------------------|------------------------------|------------------|-------------|-----------------|----------|
+| Dynamic Hotspot | `hotspot` | `"metric"` (point data) | `viewer/hotspots_residue.json` | Yes | `red_white_blue` |
+| Dynamic Anomaly | `anomaly` | `"metric"` (point data) | `viewer/anomaly_residue.json` | Yes | `red_white_blue` |
+| RMSF (Flexibility) | `rmsf` | `"metric"` (point data) | `viewer/rmsf_residue.json` | No | `red_white_blue` |
+| tICA Importance | `tica` | `"metric"` (point data) | `viewer/tica_importance.json` | No | `red_white_blue` |
+
+All metrics share a single VTK point-data scalar array named **`"metric"`** on the input `vtkPolyData`.
+The colormap is always **`red_white_blue`** (10-stop linear gradient from `#08306b` dark-blue → `#ffffff` white → `#67000d` dark-red).
+The scalar range is set dynamically to `[min(values), max(values)]` for each frame; a padding of ±0.5 is applied if `min == max` to prevent a degenerate single-color render.
+
+#### VTK pipeline (server-side)
+
+```
+adapter.get_ca_xyz(frame)        # Cα positions from MDAnalysis
+       ↓
+vtkPolyData  (points + single polyline + point-data scalars)
+  • "metric"     vtkFloatArray   – per-Cα metric value (SetScalars)
+  • "residue_id" vtkIntArray     – 0-based residue index (AddArray)
+       ↓
+vtkSplineFilter  (SetSubdivideToLength, length=1.5 Å)
+       ↓
+vtkRibbonFilter  (width=0.3, angle=0.0)
+       ↓
+vtkPolyDataMapper
+  • SetScalarModeToUsePointData()
+  • SelectColorArray("metric")
+  • SetLookupTable(red_white_blue LUT, 256 entries)
+  • SetScalarRange(lo, hi)       – dynamic per-frame
+       ↓
+vtkActor → vtkRenderer → vtkRenderWindow (1280×720, off-screen)
+       ↓
+trame-vtk VtkRemoteView  (ref="ribbonView")
+  • LeftButtonPress → on_vtk_click   (residue picking / measurement)
+  • MouseMove       → on_vtk_hover   (tooltip, throttled to 50 ms)
+```
+
+The `"residue_id"` array stores the 0-based residue index for every Cα point, making it possible to trace any 3D pick position back to its residue even after the spline/ribbon subdivision.
+
+#### Picking and interaction
+
+Picking is performed server-side using a cascade of two VTK pickers:
+1. `vtkCellPicker` (tolerance 0.005) — tries the picked cell first.
+2. `vtkPointPicker` (tolerance 0.01) — fallback for misses.
+
+The 3D pick position returned by either picker is then matched to the nearest Cα entry in `_ca_positions_cache` (max distance 5.0 Å).  If no Cα is within 5 Å the pick is discarded.
+
+#### Hover tooltip
+
+The tooltip is updated on every `MouseMove` event (server-side, throttled to once per 50 ms).
+It reads `state.hover_tooltip_text` which is set to:
+
+```
+{resname}{resnum} (Chain {chain}) | {metric_label}: {value:.3f}
+```
+
+Where:
+- `resname` / `resnum` / `chain` come from `RESIDUES[residue_id]` (the trajectory adapter's residue table).
+- `metric_label` is the **UI label** from `METRIC_CONFIG[current_metric]["label"]` (e.g. `"Dynamic Hotspot"`).
+- `value` is retrieved by `get_residue_metric_value(residue_id, current_metric, current_frame)`:
+  1. First tries the live VTK `"metric"` scalar array (most accurate when the rendered metric matches).
+  2. Falls back to the JSON data dict.
+  3. For `hotspot`, computes `anomaly×0.4 + rmsf×0.3 + tica×0.3` if the JSON has no entry.
+  4. Returns `"N/A"` and logs source `"fallback:zero"` when no data is found at all.
+
+#### Residue Info panel state fields
+
+| State field | Type | Description |
+|-------------|------|-------------|
+| `selected_residue_idx` | `int` (−1 = none) | 0-based index of the selected residue |
+| `residue_info` | `dict` | `{index, resnum, resname, chain, metrics, explanations}` |
+| `show_residue_info` | `bool` | Controls visibility of the Residue Info card |
+| `hover_residue_idx` | `int` (−1 = none) | 0-based index under the cursor |
+| `hover_tooltip_text` | `str` | Text shown in the floating tooltip overlay |
+| `hover_enabled` | `bool` | Toggle hover processing (default `True`) |
+
+`residue_info.metrics` keys: `hotspot`, `anomaly`, `rmsf`, `tica` (all `float`).
+`residue_info.explanations` keys: same four keys with human-readable description strings.
 
 ### Classic Viewer (Flask-based)
 1. Once the application is running, open http://localhost:5000 in your browser

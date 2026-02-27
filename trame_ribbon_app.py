@@ -202,9 +202,20 @@ lines = vtk.vtkCellArray()
 scalars = vtk.vtkFloatArray()
 scalars.SetName("metric")
 scalars.SetNumberOfValues(max(1, NUM_RESIDUES))
+
+# residue_id array: one integer per CA point identifying which residue it belongs to.
+# Stored as point data so the SplineFilter can carry it through the pipeline.
+# Used by _pick_position_to_residue to verify residue-level picks.
+residue_id_array = vtk.vtkIntArray()
+residue_id_array.SetName("residue_id")
+residue_id_array.SetNumberOfValues(max(1, NUM_RESIDUES))
+for _i in range(max(1, NUM_RESIDUES)):
+    residue_id_array.SetValue(_i, _i)
+
 polydata.SetPoints(points)
 polydata.SetLines(lines)
 polydata.GetPointData().SetScalars(scalars)
+polydata.GetPointData().AddArray(residue_id_array)
 
 spline_filter = vtk.vtkSplineFilter()
 spline_filter.SetInputData(polydata)
@@ -268,6 +279,10 @@ _scene_initialized = False
 # Track last pick for interaction state
 _last_pick_cell_id = -1
 _last_pick_point_id = -1
+
+# Highlight actor for the currently selected residue.
+# A wireframe sphere that does NOT replace the ribbon coloring.
+_highlight_actor: Optional[vtk.vtkActor] = None
 
 # -----------------------------------------------------------------------------
 # Task 1: Clipping plane setup
@@ -663,6 +678,13 @@ def update_ribbon_geometry(frame: int, metric: str) -> None:
         scalars.SetValue(idx, float(values[idx] if idx < len(values) else 0.0))
     scalars.Modified()
 
+    # Refresh residue_id array (0-based index per CA point)
+    if residue_id_array.GetNumberOfValues() != n_points:
+        residue_id_array.SetNumberOfValues(n_points)
+    for idx in range(n_points):
+        residue_id_array.SetValue(idx, idx)
+    residue_id_array.Modified()
+
     # Dynamically set the scalar range so the full colormap spans the actual
     # data extent rather than the hardcoded [0, 1].  This prevents all-blue
     # rendering when data values are confined to a narrow low range (e.g.
@@ -963,17 +985,102 @@ def _focus_on_residue(residue_idx: int):
         pass  # Ignore render errors in headless environment
 
 
+def get_residue_metric_value(residue_id: int, metric_key: str, frame_index: int) -> Tuple[float, str]:
+    """Return the metric value for a residue and a string describing its source.
+
+    Parameters
+    ----------
+    residue_id : int
+        0-based residue index (matches the ``residue_id`` point-data array).
+    metric_key : str
+        One of the keys in ``METRIC_CONFIG`` (``"hotspot"``, ``"anomaly"``,
+        ``"rmsf"``, ``"tica"``).
+    frame_index : int
+        Trajectory frame index (only relevant for frame-dependent metrics).
+
+    Returns
+    -------
+    (value, source_string)
+        ``source_string`` is one of:
+
+        * ``"vtk_array:metric"``     – value read back from the VTK ``"metric"``
+          point-data scalar array (most accurate, already rendered).
+        * ``"json:<filename>"``       – value looked up directly in the loaded
+          JSON data dict (``HOTSPOTS``, ``ANOMALY``, ``RMSF``, or ``TICA``).
+        * ``"computed:aggregate"``    – hotspot computed from anomaly/rmsf/tica
+          because the JSON file contained no entry for this residue.
+        * ``"fallback:zero"``         – no data available; returns 0.0.
+    """
+    if residue_id < 0 or residue_id >= NUM_RESIDUES:
+        return 0.0, "fallback:zero"
+
+    config = METRIC_CONFIG.get(metric_key) or METRIC_CONFIG[DEFAULT_METRIC]
+    source = config["source"]
+
+    # --- Prefer reading from the live VTK scalar array only when it holds
+    #     values for the requested metric (i.e. the pipeline is up-to-date and
+    #     the currently rendered metric matches what was asked for).
+    current_rendered = getattr(state, "current_metric", None) or DEFAULT_METRIC
+    vtk_sc = polydata.GetPointData().GetScalars()
+    if (metric_key == current_rendered
+            and vtk_sc is not None and vtk_sc.GetName() == "metric"
+            and residue_id < vtk_sc.GetNumberOfValues()):
+        return float(vtk_sc.GetValue(residue_id)), "vtk_array:metric"
+
+    # --- Fall back to the raw JSON dict
+    if config["frame_dependent"]:
+        frame_blob = source.get(str(frame_index), {}) if isinstance(source, dict) else {}
+        val = _residue_value(frame_blob, residue_id)
+        if val != 0.0:
+            # Derive the data file path from the config source object identity
+            src_paths = {id(HOTSPOTS): HOTSPOTS_RES_PATH, id(ANOMALY): ANOMALY_PATH}
+            json_path = src_paths.get(id(source), metric_key)
+            return val, f"json:{json_path}"
+        # For hotspot, try computing from other metrics if no direct value
+        if metric_key == "hotspot":
+            anomaly_blob = ANOMALY.get(str(frame_index), {}) if isinstance(ANOMALY, dict) else {}
+            a = _residue_value(anomaly_blob, residue_id)
+            r = float(RMSF.get(str(residue_id), 0.0)) if isinstance(RMSF, dict) else 0.0
+            t = float(TICA.get(str(residue_id), 0.0)) if isinstance(TICA, dict) else 0.0
+            computed = a * 0.4 + r * 0.3 + t * 0.3
+            if computed > 0.0:
+                return computed, "computed:aggregate"
+        return 0.0, "fallback:zero"
+    else:
+        val = float(source.get(str(residue_id), 0.0)) if isinstance(source, dict) else 0.0
+        if val != 0.0:
+            src_paths = {id(RMSF): RMSF_PATH, id(TICA): TICA_PATH}
+            json_path = src_paths.get(id(source), metric_key)
+            return val, f"json:{json_path}"
+        return 0.0, "fallback:zero"
+
+
 def _get_hover_tooltip(residue_idx: int) -> str:
-    """Generate tooltip text for hover."""
+    """Generate tooltip text for hover.
+
+    Shows: ``{resname}{resnum} (Chain {chain})`` on the first line and
+    ``{metric_label}: {value:.3f}`` on the second line (or "N/A" when no
+    data is available for the active metric).
+    """
     if residue_idx < 0 or residue_idx >= NUM_RESIDUES:
         return ""
-    
+
     residue = RESIDUES[residue_idx]
     resname = residue.get("resname", "UNK")
     resnum = residue.get("resnum", residue_idx + 1)
     chain = residue.get("chain", "A")
-    
-    return f"{resname}{resnum} (Chain {chain})"
+
+    metric_key = getattr(state, "current_metric", None) or DEFAULT_METRIC
+    frame = getattr(state, "current_frame", 0) or 0
+    value, _src = get_residue_metric_value(residue_idx, metric_key, frame)
+    metric_label = METRIC_CONFIG.get(metric_key, {}).get("label", metric_key)
+
+    if value == 0.0 and _src == "fallback:zero":
+        score_text = "N/A"
+    else:
+        score_text = f"{value:.3f}"
+
+    return f"{resname}{resnum} (Chain {chain}) | {metric_label}: {score_text}"
 
 
 def _apply_colormap(name: str):
@@ -985,6 +1092,55 @@ def _apply_colormap(name: str):
 def _get_metric_colormap(metric: str) -> str:
     """Get the appropriate colormap for a metric, or use default."""
     return METRIC_COLORMAPS.get(metric, DEFAULT_COLORMAP)
+
+
+def _update_highlight(residue_idx: int) -> None:
+    """Create or remove the wireframe-sphere highlight for the selected residue.
+
+    The overlay actor is a wireframe sphere placed at the Cα position of the
+    selected residue.  Using wireframe rendering means the base ribbon coloring
+    is not obscured.  The previous highlight is always removed before a new one
+    is added, so only a single residue is highlighted at any time.
+    """
+    global _highlight_actor
+    if _highlight_actor is not None:
+        renderer.RemoveActor(_highlight_actor)
+        _highlight_actor = None
+
+    if residue_idx < 0 or residue_idx >= len(_ca_positions_cache):
+        return
+
+    pos = _ca_positions_cache[residue_idx]
+    sphere = vtk.vtkSphereSource()
+    sphere.SetCenter(*pos)
+    sphere.SetRadius(1.5)
+    sphere.SetThetaResolution(12)
+    sphere.SetPhiResolution(12)
+
+    sphere_mapper = vtk.vtkPolyDataMapper()
+    sphere_mapper.SetInputConnection(sphere.GetOutputPort())
+
+    _highlight_actor = vtk.vtkActor()
+    _highlight_actor.SetMapper(sphere_mapper)
+    _highlight_actor.GetProperty().SetColor(1.0, 1.0, 0.0)   # yellow
+    _highlight_actor.GetProperty().SetOpacity(0.8)
+    _highlight_actor.GetProperty().SetRepresentationToWireframe()
+    _highlight_actor.GetProperty().SetLineWidth(2.0)
+    renderer.AddActor(_highlight_actor)
+
+
+def _select_residue(residue_idx: int) -> None:
+    """Centralised function to select a residue and update all derived state."""
+    state.selected_residue_idx = residue_idx
+    state.residue_info = _format_residue_info(residue_idx, state.current_frame)
+    state.show_residue_info = True
+    _update_highlight(residue_idx)
+    if 0 <= residue_idx < NUM_RESIDUES:
+        residue = RESIDUES[residue_idx]
+        state.status_message = (
+            f"Selected: {residue.get('resname','UNK')}{residue.get('resnum', residue_idx+1)}"
+            f" (Chain {residue.get('chain','A')})"
+        )
 
 
 def _update_clipping(enabled: bool, axis: str, position: float):
@@ -1084,10 +1240,8 @@ def _handle_residue_pick(residue_idx: int):
         _update_picks_display()
     
     else:
-        # Just show residue info
-        state.selected_residue_idx = residue_idx
-        state.residue_info = _format_residue_info(residue_idx, state.current_frame)
-        state.show_residue_info = True
+        # Select residue, show info panel, and add highlight overlay
+        _select_residue(residue_idx)
 
 
 def _update_picks_display():
@@ -1201,9 +1355,59 @@ def clear_measurement():
 
 @ctrl.add("close_residue_info")
 def close_residue_info():
-    """Close residue info panel."""
+    """Close residue info panel and remove the selection highlight."""
+    global _highlight_actor
+    if _highlight_actor is not None:
+        renderer.RemoveActor(_highlight_actor)
+        _highlight_actor = None
     state.show_residue_info = False
     state.selected_residue_idx = -1
+
+
+@ctrl.add("clear_residue_selection")
+def clear_residue_selection():
+    """Clear selected residue, remove highlight, and close the info panel."""
+    global _highlight_actor
+    if _highlight_actor is not None:
+        renderer.RemoveActor(_highlight_actor)
+        _highlight_actor = None
+    state.selected_residue_idx = -1
+    state.residue_info = {}
+    state.show_residue_info = False
+    state.status_message = "Selection cleared"
+    ctrl.update_view()
+
+
+@ctrl.add("select_next_residue")
+def select_next_residue():
+    """Navigate to the next residue in sequence (wraps around).
+
+    If no residue is currently selected, selects the first residue (index 0).
+    Ordering follows the 0-based residue index returned by the trajectory
+    adapter (i.e. the order of Cα atoms in the trajectory).
+    """
+    if NUM_RESIDUES == 0:
+        return
+    current = state.selected_residue_idx
+    next_idx = 0 if current < 0 else (current + 1) % NUM_RESIDUES
+    _select_residue(next_idx)
+    ctrl.update_view()
+
+
+@ctrl.add("select_prev_residue")
+def select_prev_residue():
+    """Navigate to the previous residue in sequence (wraps around).
+
+    If no residue is currently selected, selects the last residue.
+    Ordering follows the 0-based residue index returned by the trajectory
+    adapter (i.e. the order of Cα atoms in the trajectory).
+    """
+    if NUM_RESIDUES == 0:
+        return
+    current = state.selected_residue_idx
+    prev_idx = NUM_RESIDUES - 1 if current < 0 else (current - 1) % NUM_RESIDUES
+    _select_residue(prev_idx)
+    ctrl.update_view()
 
 
 @ctrl.add("test_select_residue")
@@ -1228,24 +1432,17 @@ def select_residue_from_dropdown(residue_idx):
     """Select a residue from the dropdown selector."""
     if residue_idx is None or residue_idx < 0:
         return
-    
+
     if residue_idx >= NUM_RESIDUES:
         state.status_message = f"Invalid residue index: {residue_idx}"
         return
-    
-    residue = RESIDUES[residue_idx] if residue_idx < NUM_RESIDUES else {}
-    resname = residue.get("resname", "UNK")
-    resnum = residue.get("resnum", residue_idx + 1)
-    
-    state.status_message = f"Selected: {resname}{resnum} (residue {residue_idx})"
-    state.selected_residue_idx = residue_idx
-    state.residue_info = _format_residue_info(residue_idx, state.current_frame)
-    state.show_residue_info = True
-    
+
     # Handle measurement mode
     if state.measurement_mode:
         _handle_residue_pick(residue_idx)
-    
+    else:
+        _select_residue(residue_idx)
+
     ctrl.update_view()
 
 
@@ -1880,7 +2077,32 @@ with SinglePageLayout(server) as layout:
                                     html.Strong("Index: "),
                                     html.Span("{{ residue_info.index }}"),
                                 ], classes="body-2 mb-2")
-                                
+                            with vuetify.VCardActions(classes="py-1"):
+                                vuetify.VBtn(
+                                    x_small=True,
+                                    text=True,
+                                    click=ctrl.select_prev_residue,
+                                    children=[vuetify.VIcon("mdi-chevron-left", x_small=True), "Prev"],
+                                    title="Select previous residue",
+                                )
+                                vuetify.VSpacer()
+                                vuetify.VBtn(
+                                    x_small=True,
+                                    text=True,
+                                    color="error",
+                                    click=ctrl.clear_residue_selection,
+                                    children=["Clear"],
+                                    title="Clear selection and remove highlight",
+                                )
+                                vuetify.VSpacer()
+                                vuetify.VBtn(
+                                    x_small=True,
+                                    text=True,
+                                    click=ctrl.select_next_residue,
+                                    children=["Next", vuetify.VIcon("mdi-chevron-right", x_small=True)],
+                                    title="Select next residue",
+                                )
+                            with vuetify.VCardText(classes="py-1"):
                                 vuetify.VDivider(classes="my-2")
                                 
                                 # ML Metrics
