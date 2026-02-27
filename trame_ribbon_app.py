@@ -17,6 +17,9 @@ from trame.widgets import vtk as vtk_widgets
 
 from trajectory_adapter import get_adapter
 
+# Enable extra VTK pipeline diagnostics by setting ASVS_DEBUG_VTK=1
+_DEBUG_VTK = os.environ.get("ASVS_DEBUG_VTK", "0") == "1"
+
 # -----------------------------------------------------------------------------
 # Data loading helpers
 # -----------------------------------------------------------------------------
@@ -221,6 +224,8 @@ mapper = vtk.vtkPolyDataMapper()
 mapper.SetInputConnection(ribbon_filter.GetOutputPort())
 mapper.SetScalarRange(0.0, 1.0)
 mapper.ScalarVisibilityOn()
+mapper.SetScalarModeToUsePointData()
+mapper.SelectColorArray("metric")
 mapper.SetLookupTable(_get_lookup_table(DEFAULT_COLORMAP))
 
 actor = vtk.vtkActor()
@@ -668,6 +673,45 @@ def update_ribbon_geometry(frame: int, metric: str) -> None:
         _scene_initialized = True
 
 
+def apply_frame(frame_index: int, metric: Optional[str] = None) -> None:
+    """Apply a specific frame to the VTK pipeline and trigger a render.
+
+    This is the single authoritative entry point for frame updates, called by
+    both the slider state-change callback and the animation playback loop.
+
+    Parameters
+    ----------
+    frame_index : int
+        Frame index to display (clamped to the valid range automatically).
+    metric : str, optional
+        Metric name to use for residue colouring.  Defaults to the current
+        ``state.current_metric`` value, falling back to ``DEFAULT_METRIC``.
+    """
+    frame_index = max(0, min(NUM_FRAMES - 1, int(frame_index))) if NUM_FRAMES > 0 else 0
+    if NUM_FRAMES == 0:
+        return
+    resolved_metric = metric or getattr(state, "current_metric", None) or DEFAULT_METRIC
+
+    if _DEBUG_VTK:
+        print(f"[ASVS_DEBUG_VTK] apply_frame: frame={frame_index}, metric={resolved_metric}")
+
+    update_ribbon_geometry(frame_index, resolved_metric)
+
+    # Explicitly render so the pipeline executes before view.update() pushes
+    # the image to the client.
+    render_window.Render()
+
+    if _DEBUG_VTK:
+        sc = polydata.GetPointData().GetScalars()
+        sc_name = sc.GetName() if sc else None
+        sc_range = sc.GetRange() if sc else (0, 0)
+        print(
+            f"[ASVS_DEBUG_VTK]   n_points={polydata.GetNumberOfPoints()}, "
+            f"n_cells={polydata.GetNumberOfCells()}, "
+            f"scalar={sc_name!r}, range={sc_range}"
+        )
+
+
 # -----------------------------------------------------------------------------
 # Trame server + UI
 # -----------------------------------------------------------------------------
@@ -782,13 +826,6 @@ state.bookmark_name = ""
 # -----------------------------------------------------------------------------
 # New Feature Functions
 # -----------------------------------------------------------------------------
-
-def _animation_step():
-    """Advance animation by one frame."""
-    if state.animation_playing:
-        next_frame = (state.current_frame + 1) % (NUM_FRAMES)
-        state.current_frame = next_frame
-
 
 def _search_residues(query: str) -> List[Dict]:
     """Search residues by name or number."""
@@ -1067,7 +1104,7 @@ def _on_state_change(current_frame, current_metric, current_colormap, **_):
         colormap = _get_metric_colormap(metric)
     
     _apply_colormap(colormap)
-    update_ribbon_geometry(current_frame or 0, metric)
+    apply_frame(current_frame or 0, metric)  # renders + optional debug log
     
     # Update color bar info
     state.color_bar_label = METRIC_CONFIG.get(metric, {}).get("label", "Value")
@@ -1291,44 +1328,61 @@ def on_vtk_select(selection_info):
 
 
 # -----------------------------------------------------------------------------
-# New Feature: Animation playback controllers
+# Animation playback controllers
 # -----------------------------------------------------------------------------
+
+async def _animation_loop_async() -> None:
+    """Async animation loop running inside the Trame event loop.
+
+    Increments ``state.current_frame`` each tick, which fires
+    ``_on_state_change`` to call ``apply_frame``, render, and push the new
+    image to the client.  Using an asyncio task keeps the loop non-blocking
+    and allows the server to handle other events between frames.
+    """
+    global _animation_running
+    while _animation_running and state.animation_playing:
+        next_frame = (state.current_frame + 1) % max(1, NUM_FRAMES)
+        state.current_frame = next_frame  # triggers _on_state_change → apply_frame + view update
+        await asyncio.sleep(1.0 / max(1, state.animation_speed))
+    _animation_running = False
+
+
+def _animation_loop_threaded() -> None:
+    """Fallback threading animation loop used when no asyncio loop is available."""
+    global _animation_running
+    while _animation_running and state.animation_playing:
+        next_frame = (state.current_frame + 1) % max(1, NUM_FRAMES)
+        state.current_frame = next_frame  # Update UI slider first
+        apply_frame(next_frame)           # Then update VTK + render
+        time.sleep(1.0 / max(1, state.animation_speed))
+    _animation_running = False
+
+
 @ctrl.add("toggle_animation")
 def toggle_animation():
-    """Toggle animation playback."""
+    """Toggle animation playback on/off."""
     global _animation_running, _animation_task
     state.animation_playing = not state.animation_playing
-    
+
     if state.animation_playing:
         state.status_message = f"▶ Playing at {state.animation_speed} fps"
         _animation_running = True
-        # Schedule animation using server's asynchronous task
-        _start_animation_loop()
+        try:
+            # Preferred: schedule an asyncio task inside the Trame event loop
+            _animation_task = asyncio.get_event_loop().create_task(
+                _animation_loop_async()
+            )
+        except RuntimeError:
+            # Fallback: daemon thread when no running event loop is accessible
+            _animation_task = threading.Thread(
+                target=_animation_loop_threaded, daemon=True
+            )
+            _animation_task.start()
     else:
         state.status_message = "⏸ Paused"
         _animation_running = False
-
-
-def _start_animation_loop():
-    """Start the animation loop using threading for reliable playback."""
-    global _animation_task, _animation_running
-    
-    def _animation_loop_threaded():
-        """Animation loop that runs in a background thread."""
-        global _animation_running
-        while _animation_running and state.animation_playing:
-            _animation_step()
-            # Force view update
-            try:
-                ctrl.update_view()
-            except Exception:
-                pass
-            # Sleep based on current speed
-            time.sleep(1.0 / max(1, state.animation_speed))
-    
-    # Start animation in a background thread
-    _animation_task = threading.Thread(target=_animation_loop_threaded, daemon=True)
-    _animation_task.start()
+        if isinstance(_animation_task, asyncio.Task) and not _animation_task.done():
+            _animation_task.cancel()
 
 
 @ctrl.add("animation_step_forward")
@@ -1339,7 +1393,7 @@ def animation_step_forward():
     state.status_message = f"Frame {new_frame} / {NUM_FRAMES - 1}"
 
 
-@ctrl.add("animation_step_backward")  
+@ctrl.add("animation_step_backward")
 def animation_step_backward():
     """Step animation backward by one frame."""
     new_frame = (state.current_frame - 1) % max(1, NUM_FRAMES)
@@ -1349,25 +1403,19 @@ def animation_step_backward():
 
 @state.change("animation_playing")
 def _on_animation_change(animation_playing, **_):
-    """Handle animation state changes."""
+    """Stop the animation task/thread when playback is turned off."""
     global _animation_task, _animation_running
-    
+
     if not animation_playing:
-        # Stop animation
         _animation_running = False
-        if _animation_task is not None:
-            try:
-                _animation_task.cancel()
-            except Exception:
-                pass
-            _animation_task = None
+        if isinstance(_animation_task, asyncio.Task) and not _animation_task.done():
+            _animation_task.cancel()
+        _animation_task = None
 
 
 @state.change("animation_speed")
 def _on_animation_speed_change(animation_speed, **_):
-    """Handle animation speed changes."""
-    # Animation loop will pick up the new speed automatically
-    # Just update status message if playing
+    """Update status message when speed changes; the loop picks up the new value automatically."""
     if state.animation_playing:
         state.status_message = f"▶ Playing at {animation_speed} fps"
 
@@ -1984,7 +2032,7 @@ ctrl.update_view = view.update
 
 # Bootstrap once to populate data before serving
 _apply_colormap(state.current_colormap)
-update_ribbon_geometry(state.current_frame, state.current_metric)
+apply_frame(state.current_frame, state.current_metric)
 state.color_bar_label = METRIC_CONFIG.get(state.current_metric, {}).get("label", "Value")
 state.status_message = (
     f"Frame {state.current_frame} · Metric: {METRIC_CONFIG[state.current_metric]['label']} · Colormap: {state.current_colormap.replace('_', ' ').title()}"
