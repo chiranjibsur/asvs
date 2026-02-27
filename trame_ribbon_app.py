@@ -26,6 +26,10 @@ _DEBUG_VTK = os.environ.get("ASVS_DEBUG_VTK", "0") == "1"
 ROOT = os.path.abspath(os.path.dirname(__file__))
 VIEWER_DIR = os.path.join(ROOT, "viewer")
 
+# Padding used to widen a degenerate (all-equal) scalar range so the LUT
+# has a finite interval to map colours onto.
+_DEGENERATE_RANGE_PADDING = 0.5
+
 HOTSPOTS_RES_PATH = os.environ.get(
     "ASVS_HOTSPOTS_RES",
     os.path.join(VIEWER_DIR, "hotspots_residue.json"),
@@ -658,6 +662,20 @@ def update_ribbon_geometry(frame: int, metric: str) -> None:
     for idx in range(n_points):
         scalars.SetValue(idx, float(values[idx] if idx < len(values) else 0.0))
     scalars.Modified()
+
+    # Dynamically set the scalar range so the full colormap spans the actual
+    # data extent rather than the hardcoded [0, 1].  This prevents all-blue
+    # rendering when data values are confined to a narrow low range (e.g.
+    # hotspot scores in [0.0, 0.31]).
+    if values:
+        lo = float(min(values))
+        hi = float(max(values))
+    else:
+        lo, hi = 0.0, 1.0
+    if lo == hi:  # degenerate: give the colormap a finite interval to work with
+        lo = max(0.0, lo - _DEGENERATE_RANGE_PADDING)
+        hi = hi + _DEGENERATE_RANGE_PADDING
+    mapper.SetScalarRange(lo, hi)
 
     polydata.Modified()
     
@@ -1338,11 +1356,16 @@ async def _animation_loop_async() -> None:
     ``_on_state_change`` to call ``apply_frame``, render, and push the new
     image to the client.  Using an asyncio task keeps the loop non-blocking
     and allows the server to handle other events between frames.
+
+    The ``with state:`` context manager is required so Trame flushes the state
+    change to all connected clients and triggers ``@state.change`` callbacks.
+    Without it the assignment is queued but never pushed.
     """
     global _animation_running
     while _animation_running and state.animation_playing:
         next_frame = (state.current_frame + 1) % max(1, NUM_FRAMES)
-        state.current_frame = next_frame  # triggers _on_state_change → apply_frame + view update
+        with server.state:
+            state.current_frame = next_frame  # flush to clients + trigger _on_state_change
         await asyncio.sleep(1.0 / max(1, state.animation_speed))
     _animation_running = False
 
@@ -1352,8 +1375,12 @@ def _animation_loop_threaded() -> None:
     global _animation_running
     while _animation_running and state.animation_playing:
         next_frame = (state.current_frame + 1) % max(1, NUM_FRAMES)
-        state.current_frame = next_frame  # Update UI slider first
-        apply_frame(next_frame)           # Then update VTK + render
+        with server.state:
+            state.current_frame = next_frame  # flush to clients + trigger _on_state_change
+        # In the threaded path the @state.change callback may not fire reliably
+        # from a non-asyncio thread, so we also call apply_frame() directly to
+        # guarantee the VTK pipeline is updated and rendered on this iteration.
+        apply_frame(next_frame)
         time.sleep(1.0 / max(1, state.animation_speed))
     _animation_running = False
 
