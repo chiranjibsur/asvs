@@ -16,7 +16,7 @@ Molecular Visualizer is an interactive web-based platform for visualizing protei
   - Stable animation playback
 - **Multiple Visualization Styles**: 
   - Ball and Stick model 
-  - Protein Ribbon model with smooth tube geometry
+  - Protein Ribbon model with smooth tube geometry, server-side VTK rendering via `trame-vtk`
 - **Diverse Color Mapping Options**:
   - Element-based coloring (CPK coloring)
   - B-factor (temperature) coloring
@@ -67,14 +67,19 @@ The following packages are required for the ribbon viewer with VTK.wasm support:
 ```
 flask>=2.0.1           # Web framework for classic viewer
 numpy>=1.21.0          # Numerical computing
+MDAnalysis>=2.0.0      # Trajectory parsing (.xtc + topology.pdb)
 trame>=3.0.0           # Framework for interactive web applications
 trame-vuetify>=2.3.0   # Vuetify UI components for Trame
-trame-vtklocal>=0.6.0  # VTK.wasm client-side rendering (NEW)
+trame-vtk>=2.0.0       # Server-side VTK rendering (ribbon viewer)
+trame-vtklocal>=0.6.0  # VTK.wasm client-side rendering (optional demo)
 vtk>=9.2.0             # Visualization Toolkit
 wslink>=1.11.0         # WebSocket communication for Trame
 ```
 
-**Note**: The `trame-vtklocal` package automatically downloads VTK.wasm files (~60MB) on first run. This is a one-time download.
+**Note**: The ribbon viewer (`trame_ribbon_app.py`) uses **server-side VTK rendering** via
+`trame-vtk` and `VtkRemoteView`.  The trajectory files `viewer/topology.pdb` and
+`viewer/trajectory.xtc` must be present (or pointed to via the `ASVS_PDB` / `ASVS_XTC`
+environment variables).
 
 ### Optional Packages
 
@@ -197,16 +202,40 @@ App running at:
 
 ## How to Use
 
-### Ribbon Viewer (Trame-based)
-1. Start the ribbon viewer: `python trame_ribbon_app.py`
-2. Open http://localhost:9887 in your browser
+### Ribbon Viewer (Trame-based, server-side VTK)
+1. Ensure trajectory data is in place:
+   - `viewer/topology.pdb` — protein topology
+   - `viewer/trajectory.xtc` — MD trajectory frames
+   - `viewer/hotspots_residue.json`, `viewer/anomaly_residue.json`, etc. (optional ML data)
+   
+   Or set environment variables pointing to your own files:
+   ```bash
+   export ASVS_PDB=/path/to/topology.pdb
+   export ASVS_XTC=/path/to/trajectory.xtc
+   ```
+
+2. Start the ribbon viewer:
+   ```bash
+   python trame_ribbon_app.py          # runs on http://localhost:9887
+   python trame_ribbon_app.py --port 8888  # custom port
+   ```
+
 3. Interactive features:
-   - Click on residues to view detailed information
-   - Use the "Metric" dropdown to switch between hotspot, anomaly, RMSF, and tICA coloring
-   - Enable "Distance" or "Angle" tools to measure between residues
-   - Enable "Contacts" to visualize residue-residue interactions
-   - Use animation controls (play/pause/step) to explore trajectory frames
-   - Enable "Clip" to use clipping planes for structure exploration
+   - **Frame slider** — drag the slider in the toolbar to change trajectory frames; ribbon geometry and coloring update automatically
+   - **Play/Pause** — click the ▶ button to start animation; the asyncio-based loop increments frames non-blocking
+   - **Step buttons** — ⏮ / ⏭ step one frame at a time
+   - **Metric** dropdown — switch between Hotspot, Anomaly, RMSF, tICA coloring
+   - **Colormap** — Red-White-Blue gradient (blue = low, red = high)
+   - **Distance / Angle** tools — click residues to measure
+   - **Contacts** — toggle contact network lines
+   - **Clip** — apply an axis-aligned clipping plane
+   - **📷** — export the current view as a PNG snapshot
+
+4. Debug logging: set `ASVS_DEBUG_VTK=1` for per-frame VTK diagnostics:
+   ```bash
+   ASVS_DEBUG_VTK=1 python trame_ribbon_app.py
+   ```
+   Prints frame index, number of points/cells, active scalar name, and scalar range on every update.
 
 ### Classic Viewer (Flask-based)
 1. Once the application is running, open http://localhost:5000 in your browser
@@ -241,9 +270,15 @@ If the VTK.wasm download fails on first run:
 3. Report the event format if issues persist
 
 #### Animation Not Playing
-- Make sure threading is enabled in your Python environment
-- Check console for errors
-- Verify frame data is loaded correctly
+- The animation loop uses an **asyncio task** (non-blocking, runs inside the Trame event loop).
+  No extra packages are needed.
+- If you start the viewer with the Flask proxy route (`/viewer/ribbon`) make sure the background
+  Trame process started successfully (check `stdout`/`stderr` of the subprocess).
+- Try the step buttons (⏮ / ⏭) first to confirm that frame changes update the ribbon.
+- Enable debug logging to see per-frame VTK output:
+  ```bash
+  ASVS_DEBUG_VTK=1 python trame_ribbon_app.py
+  ```
 
 #### Port Already in Use
 If port 9887 or 5000 is already in use:
