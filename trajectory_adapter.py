@@ -1,5 +1,6 @@
 import os
 import math
+import threading
 from typing import List, Dict, Tuple, Optional
 
 try:
@@ -50,6 +51,10 @@ class TrajectoryAdapter:
 
         topology_path, trajectory_path = _resolve_paths()
         self.universe = mda.Universe(topology_path, trajectory_path)
+        # Serialise all u.trajectory[frame] calls so that concurrent Flask
+        # threads (each serving a separate heatmap HTTP request) cannot clobber
+        # the universe's current-frame position simultaneously.
+        self._lock = threading.Lock()
 
         # Meta info
         self._meta: Dict[str, int] = {
@@ -128,8 +133,9 @@ class TrajectoryAdapter:
         """Return atom positions [[x, y, z], ...] for given frame."""
         u = self.universe
         frame = max(0, min(frame, len(u.trajectory) - 1))
-        u.trajectory[frame]
-        return u.atoms.positions.astype(float).tolist()
+        with self._lock:
+            u.trajectory[frame]
+            return u.atoms.positions.astype(float).tolist()
 
     # ---- ball-stick view ----
     def get_atom_table(self):
@@ -196,29 +202,30 @@ class TrajectoryAdapter:
         """
         u = self.universe
         frame = max(0, min(frame, len(u.trajectory) - 1))
-        u.trajectory[frame]
+        with self._lock:
+            u.trajectory[frame]
         
-        atoms = []
-        for i, a in enumerate(u.atoms):
-            elem = (getattr(a, "element", None) or str(a.name).strip()).upper()
-            elem = ''.join(ch for ch in elem if ch.isalpha())[:2] or "C"
-            if elem.startswith("CA"): elem = "CA" if elem == "CA" else "C"
-            if elem[0] in "CONSHPKFZIYWBMDGLEVUTRXQJ":
-                elem = elem[0]
-            
-            atom_name = str(getattr(a, "name", "")).strip().upper()
-            backbone_type = self._get_backbone_type(atom_name)
-            resname = str(getattr(a.residue, "resname", "UNK"))
-            
-            atoms.append({
-                "index": int(i),
-                "element": elem,
-                "name": atom_name,
-                "resnum": int(getattr(a, "resnum", getattr(a.residue, "resnum", i))),
-                "resname": resname,
-                "backbone_type": backbone_type,
-                "position": a.position.astype(float).tolist()
-            })
+            atoms = []
+            for i, a in enumerate(u.atoms):
+                elem = (getattr(a, "element", None) or str(a.name).strip()).upper()
+                elem = ''.join(ch for ch in elem if ch.isalpha())[:2] or "C"
+                if elem.startswith("CA"): elem = "CA" if elem == "CA" else "C"
+                if elem[0] in "CONSHPKFZIYWBMDGLEVUTRXQJ":
+                    elem = elem[0]
+                
+                atom_name = str(getattr(a, "name", "")).strip().upper()
+                backbone_type = self._get_backbone_type(atom_name)
+                resname = str(getattr(a.residue, "resname", "UNK"))
+                
+                atoms.append({
+                    "index": int(i),
+                    "element": elem,
+                    "name": atom_name,
+                    "resnum": int(getattr(a, "resnum", getattr(a.residue, "resnum", i))),
+                    "resname": resname,
+                    "backbone_type": backbone_type,
+                    "position": a.position.astype(float).tolist()
+                })
         
         return {
             "frame": frame,
@@ -230,14 +237,15 @@ class TrajectoryAdapter:
     def get_ca_xyz(self, frame: int):
         """Cα coordinates or backbone fallback for ribbon."""
         u = self.universe
-        u.trajectory[frame]
-        try:
-            sel = u.select_atoms("name CA")
-            if len(sel) == 0:
-                raise ValueError
-        except Exception:
-            sel = u.select_atoms("backbone and not name H*")
-        return sel.positions.astype(float).tolist()
+        with self._lock:
+            u.trajectory[frame]
+            try:
+                sel = u.select_atoms("name CA")
+                if len(sel) == 0:
+                    raise ValueError
+            except Exception:
+                sel = u.select_atoms("backbone and not name H*")
+            return sel.positions.astype(float).tolist()
 
     def _reconstruct_backbone_from_ca(self, ca_positions: List[List[float]]) -> List[Dict]:
         """
@@ -325,41 +333,42 @@ class TrajectoryAdapter:
         """
         u = self.universe
         frame = max(0, min(frame, len(u.trajectory) - 1))
-        u.trajectory[frame]
+        with self._lock:
+            u.trajectory[frame]
         
-        result = []
-        has_real_backbone = False
-        ca_positions = []
-        
-        for idx, residue in enumerate(u.residues):
-            resnum = int(getattr(residue, "resnum", idx + 1))
-            resname = str(getattr(residue, "resname", "UNK"))
+            result = []
+            has_real_backbone = False
+            ca_positions = []
             
-            backbone = {
-                'index': idx,
-                'resnum': resnum,
-                'resname': resname,
-                'N': None,
-                'CA': None,
-                'C': None
-            }
-            
-            # Try to find backbone atoms
-            for atom in residue.atoms:
-                atom_name = atom.name.strip().upper()
-                pos = atom.position.astype(float).tolist()
+            for idx, residue in enumerate(u.residues):
+                resnum = int(getattr(residue, "resnum", idx + 1))
+                resname = str(getattr(residue, "resname", "UNK"))
                 
-                if atom_name == 'N':
-                    backbone['N'] = pos
-                    has_real_backbone = True
-                elif atom_name == 'CA':
-                    backbone['CA'] = pos
-                    ca_positions.append(pos)
-                elif atom_name == 'C':
-                    backbone['C'] = pos
-                    has_real_backbone = True
-            
-            result.append(backbone)
+                backbone = {
+                    'index': idx,
+                    'resnum': resnum,
+                    'resname': resname,
+                    'N': None,
+                    'CA': None,
+                    'C': None
+                }
+                
+                # Try to find backbone atoms
+                for atom in residue.atoms:
+                    atom_name = atom.name.strip().upper()
+                    pos = atom.position.astype(float).tolist()
+                    
+                    if atom_name == 'N':
+                        backbone['N'] = pos
+                        has_real_backbone = True
+                    elif atom_name == 'CA':
+                        backbone['CA'] = pos
+                        ca_positions.append(pos)
+                    elif atom_name == 'C':
+                        backbone['C'] = pos
+                        has_real_backbone = True
+                
+                result.append(backbone)
         
         # If we only have CA atoms, reconstruct N and C positions
         if not has_real_backbone and ca_positions:

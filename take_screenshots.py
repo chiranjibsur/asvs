@@ -48,15 +48,14 @@ VIEWPORT_WIDTH  = 3200
 VIEWPORT_HEIGHT = 1800
 
 # How long (ms) to wait for Three.js to finish rendering after initial page load.
-# This must be large enough for the 194-frame heatmap loop (which fetches both
-# hotspot and anomaly data per frame = ~388 sequential HTTP requests) to complete
-# before we close the browser context.  Closing too early leaves in-flight
-# requests on the server, causing Werkzeug to crash on a broken socket write.
-RENDER_WAIT_MS = 15000
+# The heatmap loop makes ~388 sequential HTTP requests (hotspot+anomaly per frame).
+# With the threading.Lock in TrajectoryAdapter and waitress as the WSGI server,
+# requests are handled safely.  We still wait for rendering to complete.
+RENDER_WAIT_MS = 8000
 
-# Extra post-load wait (ms) for the ball-and-stick viewer which also loads
-# three.min.js (600 KB) on top of the same 388-request heatmap loop.
-HEAVY_PAGE_WAIT_MS = 8000   # added on top of RENDER_WAIT_MS for ballstick pages
+# Total wait for ball-and-stick pages which also load three.min.js (600 KB).
+# Applied instead of RENDER_WAIT_MS (not in addition to it) for heavy pages.
+HEAVY_PAGE_WAIT_MS = RENDER_WAIT_MS + 5000
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -178,12 +177,13 @@ def wait_for_server_ready(base_url: str, timeout: int = 15) -> bool:
     return False
 
 def main():
-    # Monkey-patch the port so app.py starts on FLASK_PORT
-    # (easier than modifying the source just for screenshots)
+    # Start the app with waitress — a production-grade WSGI server that handles
+    # abrupt browser-context closes (broken TCP connections) gracefully, unlike
+    # Werkzeug's dev server which crashes on a broken-socket write.
     patch_cmd = (
-        f"import app as _app; "
-        f"_app.app.run(host='{FLASK_HOST}', port={FLASK_PORT}, "
-        f"debug=False, use_reloader=False, threaded=True)"
+        "import app as _app; "
+        "from waitress import serve; "
+        f"serve(_app.app, host='{FLASK_HOST}', port={FLASK_PORT}, threads=8)"
     )
 
     print("=" * 60)
@@ -250,11 +250,11 @@ def main():
                 ctx, p = open_fresh_page()
                 try:
                     p.goto(url, wait_until="commit")
-                    # For heavy pages, wait for ALL resources to finish loading
-                    # before doing anything else.
-                    if heavy_page:
-                        p.wait_for_timeout(HEAVY_PAGE_WAIT_MS)
-                    wait_for_render(p, RENDER_WAIT_MS)
+                    # Heavy pages (ball-and-stick) load three.min.js (600 KB) on
+                    # top of the normal 388-request heatmap loop, so they need
+                    # more time.  HEAVY_PAGE_WAIT_MS already includes RENDER_WAIT_MS.
+                    initial_wait = HEAVY_PAGE_WAIT_MS if heavy_page else RENDER_WAIT_MS
+                    p.wait_for_timeout(initial_wait)
                     if metric:
                         select_metric(p, metric)
                     if frame_idx is not None:
@@ -262,9 +262,6 @@ def main():
                     if zoom:
                         zoom_camera(p, zoom)
                     save_screenshot(p, filename)
-                    # Wait again so any post-screenshot callbacks finish cleanly.
-                    if heavy_page:
-                        p.wait_for_timeout(3000)
                 finally:
                     ctx.close()
 

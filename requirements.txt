@@ -8,3 +8,4 @@ trame-vtklocal>=0.6.0
 vtk>=9.2.0
 wslink>=1.11.0
 biopython>=1.79
+waitress>=2.0.0
