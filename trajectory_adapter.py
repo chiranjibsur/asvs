@@ -51,24 +51,38 @@ class TrajectoryAdapter:
         topology_path, trajectory_path = _resolve_paths()
         self.universe = mda.Universe(topology_path, trajectory_path)
 
-        # Meta info
+        # Select only protein atoms so that solvent and ions are excluded from
+        # all views (point cloud, ball-and-stick, ribbon) and overlay mapping.
+        # Fall back to all atoms if the selection is empty (e.g. CG or non-standard topologies).
+        protein_atoms = self.universe.select_atoms("protein")
+        if len(protein_atoms) > 0:
+            self._atoms = protein_atoms
+            print(f"[Adapter] Loaded {len(self.universe.atoms)} atoms total; "
+                  f"using {len(self._atoms)} protein atoms "
+                  f"({len(self._atoms.residues)} residues).")
+        else:
+            self._atoms = self.universe.atoms
+            print(f"[Adapter] 'protein' selection returned 0 atoms; "
+                  f"falling back to all {len(self._atoms)} atoms.")
+
+        # Meta info (protein counts only)
         self._meta: Dict[str, int] = {
             "n_frames": len(self.universe.trajectory),
-            "n_atoms": len(self.universe.atoms),
-            "n_residues": len(self.universe.residues),
+            "n_atoms": len(self._atoms),
+            "n_residues": len(self._atoms.residues),
         }
 
-        # Atom → residue mapping
-        if hasattr(self.universe.atoms, "resnums"):
-            self._resnos = [int(a.resnum) for a in self.universe.atoms]
+        # Atom → residue mapping (protein atoms only)
+        if hasattr(self._atoms, "resnums"):
+            self._resnos = [int(a.resnum) for a in self._atoms]
         else:
             self._resnos = []
-            for r_idx, r in enumerate(self.universe.residues, start=1):
+            for r_idx, r in enumerate(self._atoms.residues, start=1):
                 self._resnos.extend([r_idx] * len(r.atoms))
 
-        # Residue table
+        # Residue table (protein residues only)
         self._res_table = []
-        for idx, r in enumerate(self.universe.residues):
+        for idx, r in enumerate(self._atoms.residues):
             resnum = int(getattr(r, "resnum", idx + 1))
             resname = str(getattr(r, "resname", "UNK"))
             chain = (
@@ -94,11 +108,10 @@ class TrajectoryAdapter:
         Check if the topology contains full backbone atoms (N, CA, C) or only CA.
         Returns True if N and C atoms are present.
         """
-        u = self.universe
         try:
-            ca_count = len(u.select_atoms("name CA"))
-            n_count = len(u.select_atoms("name N"))
-            c_count = len(u.select_atoms("name C"))
+            ca_count = len(self._atoms.select_atoms("name CA"))
+            n_count = len(self._atoms.select_atoms("name N"))
+            c_count = len(self._atoms.select_atoms("name C"))
             
             # If we have roughly equal numbers of N, CA, and C atoms, we have full backbone
             threshold = self.BACKBONE_COMPLETENESS_THRESHOLD
@@ -125,18 +138,17 @@ class TrajectoryAdapter:
         return self._res_table
 
     def get_frame_xyz(self, frame: int):
-        """Return atom positions [[x, y, z], ...] for given frame."""
+        """Return atom positions [[x, y, z], ...] for given frame (protein only)."""
         u = self.universe
         frame = max(0, min(frame, len(u.trajectory) - 1))
         u.trajectory[frame]
-        return u.atoms.positions.astype(float).tolist()
+        return self._atoms.positions.astype(float).tolist()
 
     # ---- ball-stick view ----
     def get_atom_table(self):
-        """Atoms + radii for bonding visualization."""
-        u = self.universe
+        """Atoms + radii for bonding visualization (protein only)."""
         atoms = []
-        for i, a in enumerate(u.atoms):
+        for i, a in enumerate(self._atoms):
             elem = (getattr(a, "element", None) or str(a.name).strip()).upper()
             elem = ''.join(ch for ch in elem if ch.isalpha())[:2] or "C"
             if elem.startswith("CA"): elem = "CA" if elem == "CA" else "C"
@@ -199,7 +211,7 @@ class TrajectoryAdapter:
         u.trajectory[frame]
         
         atoms = []
-        for i, a in enumerate(u.atoms):
+        for i, a in enumerate(self._atoms):
             elem = (getattr(a, "element", None) or str(a.name).strip()).upper()
             elem = ''.join(ch for ch in elem if ch.isalpha())[:2] or "C"
             if elem.startswith("CA"): elem = "CA" if elem == "CA" else "C"
@@ -228,15 +240,15 @@ class TrajectoryAdapter:
 
     # ---- ribbon view ----
     def get_ca_xyz(self, frame: int):
-        """Cα coordinates or backbone fallback for ribbon."""
+        """Cα coordinates or backbone fallback for ribbon (protein only)."""
         u = self.universe
         u.trajectory[frame]
         try:
-            sel = u.select_atoms("name CA")
+            sel = self._atoms.select_atoms("name CA")
             if len(sel) == 0:
                 raise ValueError
         except Exception:
-            sel = u.select_atoms("backbone and not name H*")
+            sel = self._atoms.select_atoms("backbone and not name H*")
         return sel.positions.astype(float).tolist()
 
     def _reconstruct_backbone_from_ca(self, ca_positions: List[List[float]]) -> List[Dict]:
@@ -331,7 +343,7 @@ class TrajectoryAdapter:
         has_real_backbone = False
         ca_positions = []
         
-        for idx, residue in enumerate(u.residues):
+        for idx, residue in enumerate(self._atoms.residues):
             resnum = int(getattr(residue, "resnum", idx + 1))
             resname = str(getattr(residue, "resname", "UNK"))
             

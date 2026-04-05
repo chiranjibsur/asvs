@@ -602,7 +602,15 @@
       const btn = document.getElementById('btnToggleMeasure');
       const isActive = window.toggleMeasurementMode();
       btn.textContent = isActive ? 'Stop Measuring' : 'Measure Distance';
-      document.getElementById('measurementsPanel').style.display = isActive ? 'block' : 'none';
+      if (isActive) {
+        document.getElementById('measurementsPanel').style.display = 'block';
+      } else {
+        // Only hide panel when angle mode is also inactive
+        const angleBtn = document.getElementById('btnToggleAngle');
+        if (angleBtn.textContent !== 'Stop Angle') {
+          document.getElementById('measurementsPanel').style.display = 'none';
+        }
+      }
     });
     
     document.getElementById('btnClearMeasurements').addEventListener('click', () => {
@@ -625,11 +633,21 @@
       if (panel) {
         panel.style.display = enabled ? 'block' : 'none';
       }
-      
+
+      // Show measurements panel when angle mode is active; hide only when both modes are off
+      if (enabled) {
+        document.getElementById('measurementsPanel').style.display = 'block';
+      } else {
+        const measureBtn = document.getElementById('btnToggleMeasure');
+        if (measureBtn.textContent !== 'Stop Measuring') {
+          document.getElementById('measurementsPanel').style.display = 'none';
+        }
+      }
+
       // Disable distance measurement if angle is enabled
       if (enabled) {
         const measureBtn = document.getElementById('btnToggleMeasure');
-        if (measureBtn.textContent === 'Stop Measure') {
+        if (measureBtn.textContent === 'Stop Measuring') {
           measureBtn.click();
         }
       }
