@@ -54,9 +54,9 @@ class TrajectoryAdapter:
         # Select only protein atoms so that solvent and ions are excluded from
         # all views (point cloud, ball-and-stick, ribbon) and overlay mapping.
         # Fall back to all atoms if the selection is empty (e.g. CG or non-standard topologies).
-        _prot = self.universe.select_atoms("protein")
-        if len(_prot) > 0:
-            self._atoms = _prot
+        protein_atoms = self.universe.select_atoms("protein")
+        if len(protein_atoms) > 0:
+            self._atoms = protein_atoms
             print(f"[Adapter] Loaded {len(self.universe.atoms)} atoms total; "
                   f"using {len(self._atoms)} protein atoms "
                   f"({len(self._atoms.residues)} residues).")
