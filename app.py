@@ -11,7 +11,7 @@ try:
         ribbon_server_url,
     )
     _RIBBON_AVAILABLE = True
-except ImportError as _ribbon_import_err:
+except Exception as _ribbon_import_err:
     _RIBBON_AVAILABLE = False
     print(f"[WARNING] Ribbon viewer unavailable: {_ribbon_import_err}")
     print("[WARNING] Install vtk, trame, and trame-vtklocal to enable the ribbon viewer.")

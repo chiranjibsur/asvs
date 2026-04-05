@@ -9,11 +9,14 @@ import threading
 import time
 from typing import Dict, List, Optional, Tuple
 
-import vtk
-from trame.app import get_server
-from trame.ui.vuetify import SinglePageLayout
-from trame.widgets import vuetify, html
-from trame.widgets import vtk as vtk_widgets
+try:
+    import vtk
+    from trame.app import get_server
+    from trame.ui.vuetify import SinglePageLayout
+    from trame.widgets import vuetify, html
+    from trame.widgets import vtk as vtk_widgets
+except Exception as _e:
+    raise ImportError(f"ribbon viewer dependencies not available: {_e}") from _e
 
 from trajectory_adapter import get_adapter
 
